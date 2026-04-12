@@ -14,7 +14,7 @@
    ```
    或使用入口文件：
    ```bash
-   uv run python main.py
+   uv run python src/main.py
    ```
 
 ## 快速入门（打包后运行）

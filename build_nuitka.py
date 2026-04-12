@@ -16,7 +16,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 APP_NAME = "BirdDetectorApp"
-MAIN_SCRIPT = PROJECT_ROOT / "main.py"
+MAIN_SCRIPT = PROJECT_ROOT / "src" / "main.py"
 DIST_PATH = PROJECT_ROOT / "dist"
 BUILD_PATH = PROJECT_ROOT / "build"
 
@@ -79,7 +79,7 @@ def build_command() -> list[str]:
         sys.executable,
         "-m",
         "nuitka",
-        MAIN_SCRIPT.name,
+        str(MAIN_SCRIPT.relative_to(PROJECT_ROOT)),
         "--standalone",
         "--remove-output",
         "--assume-yes-for-downloads",

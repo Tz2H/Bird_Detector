@@ -30,14 +30,14 @@
    ```
    也可以直接运行入口文件：
    ```bash
-   uv run python main.py
+   uv run python src/main.py
    ```
 
 如果你需要兼容旧的 pip 流程，也可以继续使用：
 
 ```bash
 pip install -r requirements.txt
-python main.py
+python src/main.py
 ```
 
 ## 打包应用程序
@@ -61,11 +61,12 @@ uv run python build_nuitka.py
 
 ```
 Bird_Detector/
-├── bird_detector_app/     # 主程序包
+├── src/
+│   ├── bird_detector_app/ # 主程序包
+│   ├── ui/                # UI组件
+│   ├── utils/             # 实用工具
+│   └── main.py            # 程序入口
 ├── resources/             # 资源文件
-├── ui/                    # UI组件
-├── utils/                 # 实用工具
-├── main.py                # 程序入口
 ├── build_nuitka.py        # Nuitka 打包脚本
 ├── config.txt             # 默认配置
 ├── requirements.txt       # 传统依赖列表
