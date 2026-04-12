@@ -21,7 +21,7 @@
 
 1. 在项目根目录执行打包：
    ```bash
-   uv run python build_exe.py
+   uv run python build_nuitka.py
    ```
 2. macOS 默认产物：
    - `dist/BirdDetectorApp.app`

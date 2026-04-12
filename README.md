@@ -16,7 +16,7 @@
 - OpenCV
 - PyQt5
 - Ultralytics YOLO
-- PyInstaller（用于打包）
+- Nuitka（用于打包）
 
 ## 安装与启动
 
@@ -42,16 +42,16 @@ python main.py
 
 ## 打包应用程序
 
-项目包含 `build_exe.py`，会通过当前 uv 环境调用 PyInstaller。
+项目包含 `build_nuitka.py`，会通过当前 uv 环境调用 Nuitka。
 
 ```bash
-uv run python build_exe.py
+uv run python build_nuitka.py
 ```
 
 打包结果会根据平台自动区分：
 
 - macOS：生成 `dist/BirdDetectorApp.app`
-- Windows：生成 `dist/BirdDetectorApp.exe`
+- Windows：生成 `dist/BirdDetectorApp.dist/BirdDetectorApp.exe`
 
 脚本会自动包含 `resources/` 和 `config.txt`。
 
@@ -66,7 +66,7 @@ Bird_Detector/
 ├── ui/                    # UI组件
 ├── utils/                 # 实用工具
 ├── main.py                # 程序入口
-├── build_exe.py           # PyInstaller 打包脚本
+├── build_nuitka.py        # Nuitka 打包脚本
 ├── config.txt             # 默认配置
 ├── requirements.txt       # 传统依赖列表
 └── README.md              # 项目说明文件
