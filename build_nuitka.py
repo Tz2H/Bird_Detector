@@ -31,7 +31,7 @@ def expected_output_path() -> Path:
 
 def icon_arguments() -> list[str]:
     """Build platform-specific icon arguments."""
-    icons_dir = PROJECT_ROOT / "resources" / "icons"
+    icons_dir = PROJECT_ROOT / "src" / "resources" / "icons"
     system = platform.system()
 
     if system == "Darwin":
@@ -40,7 +40,7 @@ def icon_arguments() -> list[str]:
             return [f"--macos-app-icon={icns_path}"]
 
         print(
-            "Warning: macOS icon not found at resources/icons/app_icon.icns, using default app icon."
+            "Warning: macOS icon not found at src/resources/icons/app_icon.icns, using default app icon."
         )
         return []
 
@@ -90,7 +90,7 @@ def build_command() -> list[str]:
         "--include-package=bird_detector_app",
         "--include-package=ui",
         "--include-package=utils",
-        f"--include-data-dir={PROJECT_ROOT / 'resources'}=resources",
+        f"--include-data-dir={PROJECT_ROOT / 'src' / 'resources'}=resources",
         f"--include-data-file={PROJECT_ROOT / 'config.txt'}=config.txt",
     ]
 

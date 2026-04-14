@@ -7,9 +7,11 @@ import csv
 import gc
 import os
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import matplotlib
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -38,9 +40,38 @@ from PyQt5.QtWidgets import (
 )
 from ui.components import MacStyleButton, MacStyleFrame
 from ui.dialogs import DensityDialog, SettingsDialog
-from utils.config_manager import save_config
+from utils.config_manager import resolve_model_path, save_config
 
 from bird_detector_app.detector import ObjectDetector
+
+
+SRC_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = SRC_ROOT.parent
+RESOURCES_DIR = SRC_ROOT / "resources"
+ICONS_DIR = RESOURCES_DIR / "icons"
+CONFIG_FILE = PROJECT_ROOT / "config.txt"
+DEFAULT_MODEL_PATH = RESOURCES_DIR / "models" / "yolo11m.pt"
+
+
+def configure_matplotlib_fonts():
+    """配置 Matplotlib 的中文字体回退，避免 macOS 乱码。"""
+    preferred_fonts = [
+        "PingFang SC",
+        "Hiragino Sans GB",
+        "Heiti SC",
+        "Microsoft YaHei",
+        "SimHei",
+        "Noto Sans CJK SC",
+        "Arial Unicode MS",
+        "DejaVu Sans",
+    ]
+    current_fonts = list(matplotlib.rcParams.get("font.sans-serif", []))
+    merged_fonts = []
+    for name in preferred_fonts + current_fonts:
+        if name not in merged_fonts:
+            merged_fonts.append(name)
+    matplotlib.rcParams["font.sans-serif"] = merged_fonts
+    matplotlib.rcParams["axes.unicode_minus"] = False
 
 
 class YoloVisualizationApp(QMainWindow):
@@ -49,6 +80,7 @@ class YoloVisualizationApp(QMainWindow):
     def __init__(self):
         """初始化主窗口"""
         super().__init__()
+        configure_matplotlib_fonts()
         self.setWindowTitle("鸟类检测系统")
         self.setGeometry(100, 100, 1440, 900)
 
@@ -64,9 +96,12 @@ class YoloVisualizationApp(QMainWindow):
         self.available_cameras = self.detect_cameras()
         self.selected_camera = None
         self.last_frame_time = QDateTime.currentDateTime()
+        self.last_chart_update = QDateTime.currentDateTime()
+        self.chart_update_interval_ms = 250
+        self.last_csv_save_second = None
 
         # 初始化检测器
-        self.bird_detector = ObjectDetector("resources/models/yolo11m.pt")
+        self.bird_detector = ObjectDetector(str(DEFAULT_MODEL_PATH))
 
         # 设置应用程序样式
         self.set_application_style()
@@ -395,14 +430,15 @@ class YoloVisualizationApp(QMainWindow):
 
     def load_config(self):
         """加载配置"""
-        config_file = "config.txt"
-        if os.path.exists(config_file):
+        if CONFIG_FILE.exists():
             try:
-                with open(config_file, "r", encoding="utf-8") as f:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if line.startswith("model="):
-                            model_path = line.split("=", 1)[1]
+                            model_path = resolve_model_path(
+                                line.split("=", 1)[1].strip()
+                            )
                             if os.path.exists(model_path):
                                 self.load_model_and_classes(model_path)
                                 self.statusBar.showMessage(
@@ -411,9 +447,11 @@ class YoloVisualizationApp(QMainWindow):
                             else:
                                 self.statusBar.showMessage("配置中指定的模型文件不存在")
                         elif line.startswith("classes="):
-                            classes_str = line.split("=", 1)[1]
+                            classes_str = line.split("=", 1)[1].strip()
                             if classes_str:
-                                self.selected_classes = set(classes_str.split(","))
+                                self.selected_classes = {
+                                    cls for cls in classes_str.split(",") if cls
+                                }
                                 self.bird_detector.selected_classes = (
                                     self.selected_classes
                                 )
@@ -431,6 +469,17 @@ class YoloVisualizationApp(QMainWindow):
                                 self.bird_detector.selected_classes = set()
                                 self.density_classes = set()
                                 self.bird_detector.density_classes = set()
+                        elif line.startswith("density="):
+                            density_str = line.split("=", 1)[1].strip()
+                            if density_str:
+                                self.density_classes = {
+                                    cls for cls in density_str.split(",") if cls
+                                }
+                            else:
+                                self.density_classes = set()
+                            self.bird_detector.density_classes = set(
+                                self.density_classes
+                            )
             except Exception as e:
                 self.statusBar.showMessage(f"读取config.txt失败: {e}")
         else:
@@ -483,14 +532,15 @@ class YoloVisualizationApp(QMainWindow):
     def create_tray_icon(self):
         """创建系统托盘图标"""
         self.tray_icon = QSystemTrayIcon(self)
+        fallback_icon = ICONS_DIR / "favicon.ico"
         # 检查self.style()是否为None，或使用默认图标路径
         icon = (
             self.style().standardIcon(self.style().SP_ComputerIcon)
             if self.style()
-            else QIcon("resources/icons/app_icon.png")
+            else QIcon(str(fallback_icon))
         )
-        if icon.isNull():
-            icon = QIcon("resources/icons/app_icon.png")  # 尝试使用项目内相对路径
+        if icon.isNull() and fallback_icon.exists():
+            icon = QIcon(str(fallback_icon))
         self.tray_icon.setIcon(icon)
 
         # 创建托盘菜单
@@ -526,12 +576,16 @@ class YoloVisualizationApp(QMainWindow):
                 self.load_model_and_classes(model_path)
                 self.selected_classes = selected_classes
                 self.bird_detector.selected_classes = self.selected_classes
-                # 保存到config.txt
-                save_config(model_path, selected_classes)
                 # 如果密度图类别未设置，默认与识别类别一致
                 if not hasattr(self, "density_classes") or not self.density_classes:
                     self.density_classes = set(selected_classes)
-                    self.bird_detector.density_classes = set(selected_classes)
+                else:
+                    self.density_classes = {
+                        cls for cls in self.density_classes if cls in selected_classes
+                    } or set(selected_classes)
+                self.bird_detector.density_classes = set(self.density_classes)
+                # 保存到config.txt
+                save_config(model_path, selected_classes, self.density_classes)
 
         def on_density():
             # 这里只处理密度图类别选择
@@ -540,6 +594,9 @@ class YoloVisualizationApp(QMainWindow):
             if ddialog.exec_():
                 self.density_classes = ddialog.get_result()
                 self.bird_detector.density_classes = self.density_classes
+                save_config(
+                    self.model_path, self.selected_classes, self.density_classes
+                )
 
         model_btn.clicked.connect(on_model)
         density_btn.clicked.connect(on_density)
@@ -602,7 +659,7 @@ class YoloVisualizationApp(QMainWindow):
         QMessageBox.about(
             self,
             "关于",
-            "YOLO智能识别分析系统\n" "版本: 1.0.0\n" "© 2025 版权所有:睿翼智控",
+            "YOLO智能识别分析系统\n版本: 1.0.0\n© 2025 版权所有:睿翼智控",
         )
 
     def detect_cameras(self):
@@ -680,9 +737,11 @@ class YoloVisualizationApp(QMainWindow):
                 if not self.cap.isOpened():
                     # 显示摄像头未打开的占位符
                     black_image = np.zeros((640, 640, 3), dtype=np.uint8)
-                    no_camera_icon_path = "resources/icons/no_camera.png"
-                    if os.path.exists(no_camera_icon_path):
-                        icon = cv2.imread(no_camera_icon_path, cv2.IMREAD_UNCHANGED)
+                    no_camera_icon_path = ICONS_DIR / "no_camera.png"
+                    if no_camera_icon_path.exists():
+                        icon = cv2.imread(
+                            str(no_camera_icon_path), cv2.IMREAD_UNCHANGED
+                        )
                         if icon is not None:
                             # 调整图标大小并叠加到黑色背景
                             icon_height, icon_width = icon.shape[:2]
@@ -799,24 +858,32 @@ class YoloVisualizationApp(QMainWindow):
         )
 
         # 记录数量密度数据
-        now_str = datetime.now().strftime("%H:%M:%S")
-        current_frame_class_counts = {}
+        now_dt = datetime.now()
+        current_frame_class_counts = {cls: 0 for cls in sorted(self.density_classes)}
         if hasattr(self.bird_detector, "current_detection_info"):
             for det_info in self.bird_detector.current_detection_info:
                 class_name = det_info["class"]
                 if class_name in self.density_classes:
-                    current_frame_class_counts[class_name] = (
-                        current_frame_class_counts.get(class_name, 0) + 1
-                    )
+                    current_frame_class_counts[class_name] += 1
+
+        # 每秒写入一次趋势数据，避免 IO 过于频繁
+        if hasattr(self.bird_detector, "current_detection_info"):
+            current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+            if (
+                self.bird_detector.current_detection_info
+                and current_second != self.last_csv_save_second
+            ):
+                self.bird_detector.save_to_csv(
+                    self.bird_detector.current_detection_info
+                )
+                self.last_csv_save_second = current_second
 
         total_objects_for_density = sum(current_frame_class_counts.values())
-
-        if total_objects_for_density > 0:
-            self.recognition_data.append(
-                (now_str, total_objects_for_density, current_frame_class_counts)
-            )
-            if len(self.recognition_data) > 100:
-                self.recognition_data.pop(0)
+        self.recognition_data.append(
+            (now_dt, total_objects_for_density, current_frame_class_counts)
+        )
+        if len(self.recognition_data) > 300:
+            self.recognition_data.pop(0)
 
         # 更新视频显示
         h, w, ch = processed_frame.shape
@@ -832,7 +899,12 @@ class YoloVisualizationApp(QMainWindow):
         )
 
         # 更新图表
-        self.update_density_chart()
+        if (
+            self.last_chart_update.msecsTo(current_time)
+            >= self.chart_update_interval_ms
+        ):
+            self.update_density_chart()
+            self.last_chart_update = current_time
 
     def update_density_chart(self):
         """更新密度图表"""
@@ -847,18 +919,17 @@ class YoloVisualizationApp(QMainWindow):
 
         class_time_count = defaultdict(list)
         timestamps = [item[0] for item in self.recognition_data]
+        plot_classes = sorted(self.density_classes)
         # 统计每个类别在每个时间点的数量
-        for idx, (t, _, frame_classes) in enumerate(self.recognition_data):
-            for cls in self.density_classes:
+        for _, _, frame_classes in self.recognition_data:
+            for cls in plot_classes:
                 class_time_count[cls].append(frame_classes.get(cls, 0))
 
         self.ax.clear()
         # 兼容新版matplotlib的colormap获取方式
         if hasattr(matplotlib, "colormaps"):
             # 只为实际需要绘制的类别分配颜色
-            valid_classes = [
-                cls for cls in self.density_classes if any(class_time_count[cls])
-            ]
+            valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
             if not valid_classes:
                 self.ax.set_title("数量密度分布（暂无数据）")
                 self.canvas.draw()
@@ -882,9 +953,7 @@ class YoloVisualizationApp(QMainWindow):
             import matplotlib.cm as cm
 
             # 只为实际需要绘制的类别分配颜色
-            valid_classes = [
-                cls for cls in self.density_classes if any(class_time_count[cls])
-            ]
+            valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
             if not valid_classes:
                 self.ax.set_title("数量密度分布（暂无数据）")
                 self.canvas.draw()
@@ -911,10 +980,11 @@ class YoloVisualizationApp(QMainWindow):
         self.ax.set_ylabel("数量", fontsize=12)
         self.ax.set_title("数量密度分布", fontsize=14, fontweight="bold")
         self.ax.grid(True, linestyle="--", alpha=0.4)
-        # x轴最多显示10个标签
-        step = max(1, len(timestamps) // 10)
-        self.ax.set_xticks(timestamps[::step])
-        self.ax.tick_params(axis="x", labelrotation=45)
+        locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
+        formatter = mdates.ConciseDateFormatter(locator)
+        self.ax.xaxis.set_major_locator(locator)
+        self.ax.xaxis.set_major_formatter(formatter)
+        self.fig.autofmt_xdate(rotation=30)
         self.ax.legend(
             fontsize=12, loc="upper left", frameon=True, fancybox=True, shadow=True
         )
@@ -983,19 +1053,29 @@ class YoloVisualizationApp(QMainWindow):
             del self.bird_detector
             gc.collect()
         try:
-            self.model_path = model_path
-            self.bird_detector = ObjectDetector(model_path)
+            self.model_path = resolve_model_path(model_path)
+            self.bird_detector = ObjectDetector(self.model_path)
             self.all_classes = list(self.bird_detector.model.names.values())
             # 初始时，识别类别和密度图类别都等于模型的全部类别
             if not hasattr(self, "selected_classes") or not self.selected_classes:
                 self.selected_classes = set(self.all_classes)
+            else:
+                self.selected_classes = {
+                    cls for cls in self.selected_classes if cls in self.all_classes
+                } or set(self.all_classes)
             if not hasattr(self, "density_classes") or not self.density_classes:
-                self.density_classes = set(self.all_classes)
+                self.density_classes = set(self.selected_classes)
+            else:
+                self.density_classes = {
+                    cls for cls in self.density_classes if cls in self.all_classes
+                } or set(self.selected_classes)
 
             self.bird_detector.selected_classes = self.selected_classes
             self.bird_detector.density_classes = self.density_classes
 
-            self.statusBar.showMessage(f"成功加载模型: {os.path.basename(model_path)}")
+            self.statusBar.showMessage(
+                f"成功加载模型: {os.path.basename(self.model_path)}"
+            )
 
         except Exception as e:
             self.statusBar.showMessage(f"加载模型失败: {e}")

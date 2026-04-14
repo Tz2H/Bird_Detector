@@ -13,15 +13,26 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from ultralytics import YOLO
 
+from utils.config_manager import resolve_model_path
+
 
 class ObjectDetector:
     """YOLO目标检测器类"""
 
-    def __init__(self, model_path="resources/models/yolo11m.pt"):
+    def __init__(self, model_path=None):
         """初始化检测器"""
-        plt.rcParams["font.sans-serif"] = ["SimHei"]
+        plt.rcParams["font.sans-serif"] = [
+            "PingFang SC",
+            "Hiragino Sans GB",
+            "Heiti SC",
+            "Microsoft YaHei",
+            "SimHei",
+            "Noto Sans CJK SC",
+            "Arial Unicode MS",
+            "DejaVu Sans",
+        ]
         plt.rcParams["axes.unicode_minus"] = False
-        self.model = YOLO(model_path)
+        self.model = YOLO(resolve_model_path(model_path))
         self.colors = {
             "box": (0, 255, 0),
             "text_bg": (44, 44, 44),

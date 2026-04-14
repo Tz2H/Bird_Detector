@@ -58,7 +58,7 @@
 
 ### 启动后无法检测
 
-- 检查模型文件是否存在（应位于 `resources/models/`）
+- 检查模型文件是否存在（应位于 `src/resources/models/`）
 - 确保摄像头已正确连接并被系统识别
 - 检查 `config.txt` 中模型路径是否可用
 
@@ -70,7 +70,7 @@
 
 ## 相关目录
 
-- `resources/`：模型和静态资源
+- `src/resources/`：模型和静态资源
 - `results/`：检测结果与导出数据
 - `config.txt`：默认配置
 

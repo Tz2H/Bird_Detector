@@ -53,9 +53,9 @@ uv run python build_nuitka.py
 - macOS：生成 `dist/BirdDetectorApp.app`
 - Windows：生成 `dist/BirdDetectorApp.dist/BirdDetectorApp.exe`
 
-脚本会自动包含 `resources/` 和 `config.txt`。
+脚本会自动包含 `src/resources/` 和 `config.txt`。
 
-如果你要给 macOS 版本设置自定义图标，可以补充 `resources/icons/app_icon.icns`。
+如果你要给 macOS 版本设置自定义图标，可以补充 `src/resources/icons/app_icon.icns`。
 
 ## 项目结构
 
@@ -65,8 +65,8 @@ Bird_Detector/
 │   ├── bird_detector_app/ # 主程序包
 │   ├── ui/                # UI组件
 │   ├── utils/             # 实用工具
+│   ├── resources/         # 资源文件
 │   └── main.py            # 程序入口
-├── resources/             # 资源文件
 ├── build_nuitka.py        # Nuitka 打包脚本
 ├── config.txt             # 默认配置
 ├── requirements.txt       # 传统依赖列表
