@@ -1,6 +1,6 @@
 """
-目标检测核心模块
-Creater Tz2H
+Core object detection logic and plotting helpers.
+Author: Tz2H
 """
 
 import csv
@@ -17,10 +17,10 @@ from utils.config_manager import resolve_model_path
 
 
 class ObjectDetector:
-    """YOLO目标检测器类"""
+    """YOLO-based object detector."""
 
     def __init__(self, model_path=None):
-        """初始化检测器"""
+        """Initialize the detector and runtime state."""
         plt.rcParams["font.sans-serif"] = [
             "PingFang SC",
             "Hiragino Sans GB",
@@ -50,19 +50,19 @@ class ObjectDetector:
         self.class_counts = {}
         self.selected_classes = set()
         self.density_classes = set()
-        # 计数相关属性
-        self.threshold = 20  # 可根据需要调整
+        # Counting-related runtime attributes.
+        self.threshold = 20  # Tune this threshold as needed.
         self.max_count = 0
         self.count_history = []
 
     def init_csv(self):
-        """初始化CSV文件"""
+        """Create the output CSV with a header row."""
         with open(self.csv_file, "w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["时间戳", "类别", "总数量"])
 
     def save_to_csv(self, detection_info):
-        """保存检测结果到CSV"""
+        """Append detection results to the CSV file."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         total_objects = len(detection_info)
         with open(self.csv_file, "a", newline="", encoding="utf-8") as f:
@@ -79,17 +79,17 @@ class ObjectDetector:
             self.class_counts[obj_class] += 1
 
     def plot_trends(self):
-        """绘制并保存检测趋势图"""
+        """Plot and save a trend chart from the latest CSV file."""
         csv_files = glob.glob(os.path.join(self.results_dir, "object_detection_*.csv"))
         if not csv_files:
-            print("未找到检测结果文件！")
+            print("No detection result files were found.")
             return
         latest_csv = max(csv_files, key=os.path.getctime)
-        print(f"正在处理文件: {latest_csv}")
+        print(f"Processing file: {latest_csv}")
         df = pd.read_csv(latest_csv)
         df["时间戳"] = pd.to_datetime(df["时间戳"])
         plt.figure(figsize=(15, 8))
-        # 按类别分组统计数量
+        # Plot per-class totals over time.
         for obj_class, group in df.groupby("类别"):
             if obj_class in self.selected_classes:
                 plt.plot(
@@ -111,11 +111,11 @@ class ObjectDetector:
             f"object_trend_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
         )
         plt.savefig(output_file, dpi=300, bbox_inches="tight")
-        print(f"趋势图已保存到: {output_file}")
+        print(f"Trend chart saved to: {output_file}")
         plt.show()
 
     def draw_counting_bar(self, frame, current_count):
-        """绘制计数条"""
+        """Draw the current count progress bar."""
         bar_width = 200
         bar_height = 25
         padding = 20
@@ -163,7 +163,7 @@ class ObjectDetector:
         )
 
     def draw_threshold_bar(self, frame, current_count):
-        """绘制阈值条"""
+        """Draw the threshold utilization bar."""
         bar_width = 250
         bar_height = 25
         padding = 20
@@ -212,7 +212,7 @@ class ObjectDetector:
         )
 
     def draw_statistics_panel(self, frame, current_count):
-        """绘制统计面板"""
+        """Draw the bottom-left statistics panel."""
         panel_width = 250
         panel_height = 120
         panel_x = 20
@@ -271,7 +271,7 @@ class ObjectDetector:
         )
 
     def get_crowd_status(self, current_count):
-        """获取当前人群状态"""
+        """Return status label and color for current count density."""
         percentage = (current_count / max(1, self.threshold)) * 100
         if percentage < 60:
             return ("NORMAL", (0, 255, 0))
@@ -281,7 +281,7 @@ class ObjectDetector:
             return ("CRITICAL", (0, 0, 255))
 
     def draw_detection(self, frame, detections):
-        """在帧上绘制检测结果"""
+        """Draw bounding boxes and labels for valid detections."""
         detection_info = []
         class_counter = {}
         for detection in detections:
@@ -292,7 +292,7 @@ class ObjectDetector:
                 continue
             class_counter[class_name] = class_counter.get(class_name, 0) + 1
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            # 每个框都显示类别名称
+            # Render the class name on each bounding box.
             cv2.putText(
                 frame,
                 class_name,
@@ -314,7 +314,7 @@ class ObjectDetector:
         self.total_objects = sum(class_counter.values())
 
     def process_frame(self, frame):
-        """处理一帧图像并返回处理后的帧"""
+        """Run model inference on a frame and draw detections."""
         results = self.model.predict(frame)
         if len(results) > 0:
             detections = results[0].boxes.data.cpu().numpy()

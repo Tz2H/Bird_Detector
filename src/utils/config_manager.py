@@ -1,6 +1,6 @@
 """
-配置管理工具模块
-Creater Tz2H
+Configuration helpers for model and class preferences.
+Author: Tz2H
 """
 
 import os
@@ -14,7 +14,7 @@ CONFIG_FILE = PROJECT_ROOT / "config.txt"
 
 
 def resolve_model_path(model_path):
-    """解析模型路径，兼容 src layout 和旧配置路径。"""
+    """Resolve a model path across src layout and legacy path styles."""
     if not model_path:
         return str(DEFAULT_MODEL_PATH)
 
@@ -39,15 +39,15 @@ def resolve_model_path(model_path):
 
 
 def load_initial_config():
-    """加载初始配置"""
-    # 默认配置
+    """Load initial application configuration."""
+    # Use project defaults when no user config exists.
     config = {
         "model_path": str(DEFAULT_MODEL_PATH),
         "selected_classes": set(),
         "density_classes": set(),
     }
 
-    # 尝试从config.txt加载配置
+    # Read user overrides from config.txt.
     if CONFIG_FILE.exists():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -61,7 +61,7 @@ def load_initial_config():
                             config["selected_classes"] = {
                                 cls for cls in classes_str.split(",") if cls
                             }
-                            # 如果config有识别类别，密度图默认与识别类别一致
+                            # Default density classes to selected classes.
                             config["density_classes"] = set(config["selected_classes"])
                     elif line.startswith("density="):
                         density_str = line.split("=", 1)[1].strip()
@@ -70,7 +70,7 @@ def load_initial_config():
                                 cls for cls in density_str.split(",") if cls
                             }
         except Exception as e:
-            print(f"读取config.txt失败: {e}")
+            print(f"Failed to read config.txt: {e}")
 
     if config["selected_classes"] and not config["density_classes"]:
         config["density_classes"] = set(config["selected_classes"])
@@ -81,13 +81,13 @@ def load_initial_config():
 
 
 def save_config(model_path, selected_classes, density_classes=None):
-    """保存配置到文件"""
+    """Persist model and class settings to config.txt."""
     try:
         model_path_value = resolve_model_path(model_path)
         try:
             model_path_value = os.path.relpath(model_path_value, PROJECT_ROOT)
         except ValueError:
-            # 可能是不同盘符或系统路径，保留绝对路径
+            # Keep absolute paths when relative conversion is not possible.
             pass
 
         sorted_selected = sorted(selected_classes) if selected_classes else []
@@ -99,5 +99,5 @@ def save_config(model_path, selected_classes, density_classes=None):
             f.write("density=" + ",".join(sorted_density) + "\n")
         return True
     except Exception as e:
-        print(f"保存config.txt失败: {e}")
+        print(f"Failed to save config.txt: {e}")
         return False

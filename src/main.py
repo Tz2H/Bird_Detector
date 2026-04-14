@@ -1,6 +1,6 @@
-"""
-鸟类检测系统 - 主程序入口
-Creater Tz2H
+"""Application entry point for the Bird Detector GUI.
+
+Author: Tz2H
 """
 
 import sys
@@ -12,16 +12,16 @@ from utils.config_manager import load_initial_config
 
 
 def main():
-    """主程序入口函数"""
-    # 检查是否存在config.txt并加载配置
+    """Run the desktop application."""
+    # Load startup configuration from config.txt when available.
     initial_config = load_initial_config()
 
     app = QApplication(sys.argv)
 
-    # 确保在 QApplication 创建后初始化主窗口
+    # Create the main window after QApplication is initialized.
     main_window = YoloVisualizationApp()
 
-    # 在窗口显示前加载模型和类别
+    # Apply model and class settings before showing the window.
     main_window.load_model_and_classes(initial_config["model_path"])
     if initial_config["selected_classes"]:
         main_window.selected_classes = initial_config["selected_classes"]

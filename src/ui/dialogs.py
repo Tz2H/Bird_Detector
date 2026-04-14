@@ -1,6 +1,6 @@
 """
-对话框模块 - 包含设置对话框和密度图设置对话框
-Creater Tz2H
+Dialog components for model and density configuration.
+Author: Tz2H
 """
 
 from PyQt5.QtWidgets import (
@@ -18,12 +18,12 @@ from ultralytics import YOLO
 
 
 class SettingsDialog(QDialog):
-    """设置对话框"""
+    """Dialog for selecting the model and detectable classes."""
 
     def __init__(
         self, parent=None, model_path=None, all_classes=None, selected_classes=None
     ):
-        """初始化设置对话框"""
+        """Initialize the settings dialog."""
         super().__init__(parent)
         self.setWindowTitle("设置")
         self.resize(400, 600)
@@ -37,7 +37,7 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # 模型选择
+        # Model selector
         model_layout = QHBoxLayout()
         self.model_label = QLabel(self.model_path if self.model_path else "未选择模型")
         self.model_btn = QPushButton("选择模型")
@@ -46,7 +46,7 @@ class SettingsDialog(QDialog):
         model_layout.addWidget(self.model_btn)
         layout.addLayout(model_layout)
 
-        # 类别复选框区域
+        # Scrollable class checkbox list
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.class_widget = QWidget()
@@ -57,7 +57,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(QLabel("请选择需要识别的类别："))
         layout.addWidget(self.scroll)
 
-        # 确认按钮
+        # Confirmation buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
         ok_btn = QPushButton("确认")
@@ -69,7 +69,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def choose_model(self):
-        """选择模型文件"""
+        """Select a YOLO model file and refresh classes."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "选择YOLO模型", "", "模型文件 (*.pt)"
         )
@@ -78,18 +78,20 @@ class SettingsDialog(QDialog):
             self.model_path = file_path
             self.all_classes = list(model.names.values())
             self.result_model_path = file_path
-            self.result_selected_classes = set(self.all_classes)  # 默认全选
+            self.result_selected_classes = set(
+                self.all_classes
+            )  # Select all by default.
             self.refresh_class_checkboxes()
             self.model_label.setText(file_path)
 
     def refresh_class_checkboxes(self):
-        """刷新类别复选框"""
-        # 清空原有
+        """Rebuild class checkboxes from current class data."""
+        # Clear existing checkbox widgets.
         for cb in self.recog_checkboxes:
             self.class_layout.removeWidget(cb)
             cb.deleteLater()
         self.recog_checkboxes = []
-        # 重新生成
+        # Build new checkbox widgets.
         for cls in self.all_classes:
             cb = QCheckBox(cls)
             cb.setChecked(cls in self.result_selected_classes)
@@ -98,22 +100,22 @@ class SettingsDialog(QDialog):
             self.recog_checkboxes.append(cb)
 
     def update_selected_classes(self):
-        """更新选中的类别"""
+        """Update the selected class set from checkbox state."""
         self.result_selected_classes = set()
         for cb in self.recog_checkboxes:
             if cb.isChecked():
                 self.result_selected_classes.add(cb.text())
 
     def get_result(self):
-        """获取对话框结果"""
+        """Return selected model path and class set."""
         return self.result_model_path, self.result_selected_classes
 
 
 class DensityDialog(QDialog):
-    """密度图设置对话框"""
+    """Dialog for configuring classes shown in density charts."""
 
     def __init__(self, parent=None, density_classes=None):
-        """初始化密度图设置对话框"""
+        """Initialize the density configuration dialog."""
         super().__init__(parent)
         self.setWindowTitle("密度图设置")
         self.resize(400, 600)
@@ -123,7 +125,7 @@ class DensityDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        # 类别复选框区域
+        # Scrollable class checkbox list
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.class_widget = QWidget()
@@ -134,7 +136,7 @@ class DensityDialog(QDialog):
         layout.addWidget(QLabel("请选择需要显示的类别："))
         layout.addWidget(self.scroll)
 
-        # 确认按钮
+        # Confirmation buttons
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
         ok_btn = QPushButton("确认")
@@ -146,13 +148,13 @@ class DensityDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def refresh_class_checkboxes(self):
-        """刷新类别复选框"""
-        # 清空原有
+        """Rebuild density class checkboxes."""
+        # Clear existing checkbox widgets.
         for cb in self.density_checkboxes:
             self.class_layout.removeWidget(cb)
             cb.deleteLater()
         self.density_checkboxes = []
-        # 重新生成
+        # Build new checkbox widgets.
         for cls in self.density_classes:
             cb = QCheckBox(cls)
             cb.setChecked(True)
@@ -161,12 +163,12 @@ class DensityDialog(QDialog):
             self.density_checkboxes.append(cb)
 
     def update_density_classes(self):
-        """更新密度图类别"""
+        """Update density classes from checkbox state."""
         self.density_classes = set()
         for cb in self.density_checkboxes:
             if cb.isChecked():
                 self.density_classes.add(cb.text())
 
     def get_result(self):
-        """获取对话框结果"""
+        """Return selected density classes."""
         return self.density_classes

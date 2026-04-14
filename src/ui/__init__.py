@@ -1,1 +1,1 @@
-"""UI模块"""
+"""User interface package."""

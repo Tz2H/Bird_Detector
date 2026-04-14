@@ -1,6 +1,6 @@
 """
-主应用程序模块
-Creater Tz2H
+Main GUI application for Bird Detector.
+Author: Tz2H
 """
 
 import csv
@@ -54,7 +54,7 @@ DEFAULT_MODEL_PATH = RESOURCES_DIR / "models" / "yolo11m.pt"
 
 
 def configure_matplotlib_fonts():
-    """配置 Matplotlib 的中文字体回退，避免 macOS 乱码。"""
+    """Configure a robust CJK font fallback list for Matplotlib."""
     preferred_fonts = [
         "PingFang SC",
         "Hiragino Sans GB",
@@ -75,16 +75,16 @@ def configure_matplotlib_fonts():
 
 
 class YoloVisualizationApp(QMainWindow):
-    """YOLO可视化应用主窗口"""
+    """Main window for real-time YOLO visualization."""
 
     def __init__(self):
-        """初始化主窗口"""
+        """Initialize the main window and runtime state."""
         super().__init__()
         configure_matplotlib_fonts()
         self.setWindowTitle("鸟类检测系统")
         self.setGeometry(100, 100, 1440, 900)
 
-        # 初始化属性
+        # Initialize runtime state.
         self.all_classes = []
         self.selected_classes = set()
         self.density_classes = set()
@@ -100,72 +100,72 @@ class YoloVisualizationApp(QMainWindow):
         self.chart_update_interval_ms = 250
         self.last_csv_save_second = None
 
-        # 初始化检测器
+        # Initialize detector backend.
         self.bird_detector = ObjectDetector(str(DEFAULT_MODEL_PATH))
 
-        # 设置应用程序样式
+        # Apply global stylesheet.
         self.set_application_style()
 
-        # 创建中央窗口部件
+        # Create and attach the central widget.
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
-        # 创建菜单栏
+        # Build the menu bar.
         self.create_menu_bar()
 
-        # 创建工具栏
+        # Build the toolbar.
         self.create_tool_bar()
 
-        # 创建状态栏
+        # Build status bar.
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
         self.statusBar.showMessage("系统就绪")
 
-        # 主布局 (垂直布局)
+        # Main vertical layout.
         main_layout = QVBoxLayout(central_widget)
         main_layout.setSpacing(18)
         main_layout.setContentsMargins(24, 24, 24, 24)
 
-        # 顶部按钮区域 (水平布局，包含设置和保存)
+        # Top action row with settings and export buttons.
         self.create_top_buttons(main_layout)
 
-        # 中间内容区域 (水平布局，包含左侧视频/计数和右侧密度图)
+        # Middle content row: left video panel, right chart panel.
         content_layout = QHBoxLayout()
         content_layout.setSpacing(20)
 
-        # 左侧布局（视频和计数）
+        # Left panel: video and counters.
         self.create_left_panel(content_layout)
 
-        # 右侧布局（密度图和开始/停止）
+        # Right panel: density chart and controls.
         self.create_right_panel(content_layout)
 
-        # 将内容布局添加到主布局下方
+        # Attach content layout below the top row.
         main_layout.addLayout(content_layout, 1)
 
-        # 初始化matplotlib FigureCanvas并添加到self.density_chart_placeholder区域
+        # Initialize the embedded Matplotlib canvas.
         self.init_matplotlib_canvas()
 
-        # 初始化密度图类别 (默认与识别类别一致)
+        # Default density classes follow detection classes.
         self.density_classes = set(self.all_classes)
         self.bird_detector.density_classes = set(self.all_classes)
 
-        # 初始化视频捕获
+        # Initialize video capture and timer.
         self.cap = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(1)  # 设置为1毫秒，让系统尽可能快地更新
+        self.timer.start(1)  # Run as fast as possible with a 1 ms interval.
 
-        # 存储识别数据 (密度图只用时间戳和总数)
+        # Buffer detection samples for the density chart.
         self.recognition_data = []  # [(timestamp, total_count, {class_name: count}), ...]
 
-        # 系统托盘图标
+        # Initialize system tray icon.
         self.create_tray_icon()
 
-        # 尝试从config.txt加载配置
+        # Load persisted user configuration.
         self.load_config()
 
     def set_application_style(self):
-        """设置应用程序样式"""
+        """Apply stylesheet rules for the whole application."""
         self.setStyleSheet("""
             QMainWindow {
                 background-color: #15171B;
@@ -302,11 +302,11 @@ class YoloVisualizationApp(QMainWindow):
         """)
 
     def create_top_buttons(self, main_layout):
-        """创建顶部按钮区域"""
+        """Create the top action row."""
         top_buttons_layout = QHBoxLayout()
         top_buttons_layout.setSpacing(12)
 
-        # 设置按钮
+        # Settings button
         self.settings_btn = MacStyleButton("设置")
         self.settings_btn.setFixedWidth(100)
         self.settings_btn.clicked.connect(self.show_settings_dialog)
@@ -314,7 +314,7 @@ class YoloVisualizationApp(QMainWindow):
 
         top_buttons_layout.addStretch()
 
-        # 保存CSV按钮
+        # CSV export button
         self.save_csv_button = MacStyleButton("保存数据为 CSV")
         self.save_csv_button.setIcon(
             self.style().standardIcon(self.style().SP_DialogSaveButton)
@@ -325,22 +325,22 @@ class YoloVisualizationApp(QMainWindow):
         main_layout.addLayout(top_buttons_layout)
 
     def create_left_panel(self, content_layout):
-        """创建左侧面板"""
+        """Create the left panel with video and counters."""
         left_frame = MacStyleFrame()
         left_layout = QVBoxLayout(left_frame)
         left_layout.setSpacing(16)
 
-        # 视频控制区域
+        # Video controls row
         video_control_frame = MacStyleFrame()
         video_control_layout = QHBoxLayout(video_control_frame)
 
-        # 视频源选择
+        # Video source selector
         self.source_combo = QComboBox()
         self.source_combo.addItems(["摄像头", "视频文件"])
         video_control_layout.addWidget(QLabel("视频源:"))
         video_control_layout.addWidget(self.source_combo)
 
-        # 分辨率选择
+        # Resolution selector
         self.resolution_combo = QComboBox()
         self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
         video_control_layout.addWidget(QLabel("分辨率:"))
@@ -348,51 +348,51 @@ class YoloVisualizationApp(QMainWindow):
 
         left_layout.addWidget(video_control_frame)
 
-        # 视频显示区域
+        # Video display area
         self.video_label = QLabel("等待视频流...")
         self.video_label.setMinimumSize(640, 640)
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setObjectName("videoDisplay")
         left_layout.addWidget(self.video_label)
 
-        # 识别信息区域
+        # Recognition info area
         info_frame = MacStyleFrame()
         info_layout = QHBoxLayout(info_frame)
 
-        # 识别计数标签
+        # Detection count label
         self.count_label = QLabel("识别到的鸟类数量: 0")
         self.count_label.setObjectName("statLabel")
         info_layout.addWidget(self.count_label)
 
-        # FPS显示
+        # FPS label
         self.fps_label = QLabel("FPS: 0")
         self.fps_label.setObjectName("statLabel")
         info_layout.addWidget(self.fps_label)
 
         left_layout.addWidget(info_frame)
 
-        # 将左侧布局添加到内容布局
+        # Attach left panel to content layout.
         content_layout.addWidget(left_frame, 2)
 
     def create_right_panel(self, content_layout):
-        """创建右侧面板"""
+        """Create the right panel with chart and controls."""
         right_frame = MacStyleFrame()
         right_layout = QVBoxLayout(right_frame)
         right_layout.setSpacing(16)
 
-        # 数量密度分布图区域 (确保在右上角)
+        # Density chart container
         self.density_chart_placeholder = QLabel("数量密度分布图")
         self.density_chart_placeholder.setMinimumSize(400, 300)
         self.density_chart_placeholder.setAlignment(Qt.AlignCenter)
         self.density_chart_placeholder.setObjectName("densityPanel")
         right_layout.addWidget(self.density_chart_placeholder)
 
-        # 控制按钮区域
+        # Control button area
         control_frame = MacStyleFrame()
         control_layout = QVBoxLayout(control_frame)
         control_layout.setSpacing(12)
 
-        # 开始/停止按钮
+        # Start/stop detection button
         self.start_stop_button = MacStyleButton("开始检测")
         self.start_stop_button.setIcon(
             self.style().standardIcon(self.style().SP_MediaPlay)
@@ -400,21 +400,21 @@ class YoloVisualizationApp(QMainWindow):
         self.start_stop_button.clicked.connect(self.toggle_detection)
         control_layout.addWidget(self.start_stop_button)
 
-        # 进度条
+        # Reserved progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         control_layout.addWidget(self.progress_bar)
 
         right_layout.addWidget(control_frame)
 
-        # 将右侧布局添加到内容布局
+        # Attach right panel to content layout.
         content_layout.addWidget(right_frame, 1)
 
     def init_matplotlib_canvas(self):
-        """初始化matplotlib画布"""
+        """Create and attach the Matplotlib canvas widget."""
         self.fig, self.ax = plt.subplots()
         self.canvas = FigureCanvas(self.fig)
-        # 移除旧的占位符布局
+        # Remove any previous placeholder layout.
         old_layout = self.density_chart_placeholder.layout()
         if old_layout:
             while old_layout.count():
@@ -429,7 +429,7 @@ class YoloVisualizationApp(QMainWindow):
         new_layout.setSpacing(0)
 
     def load_config(self):
-        """加载配置"""
+        """Load persisted configuration from config.txt."""
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -455,7 +455,7 @@ class YoloVisualizationApp(QMainWindow):
                                 self.bird_detector.selected_classes = (
                                     self.selected_classes
                                 )
-                                # 如果密度图类别未设置，默认与识别类别一致
+                                # Default density classes to selected classes.
                                 if (
                                     not hasattr(self, "density_classes")
                                     or not self.density_classes
@@ -486,10 +486,10 @@ class YoloVisualizationApp(QMainWindow):
             self.statusBar.showMessage("未找到config.txt文件，请进行设置")
 
     def create_menu_bar(self):
-        """创建菜单栏"""
+        """Create the application menu bar."""
         menubar = self.menuBar()
 
-        # 文件菜单
+        # File menu
         file_menu = menubar.addMenu("文件")
 
         open_action = QAction("打开视频", self)
@@ -509,7 +509,7 @@ class YoloVisualizationApp(QMainWindow):
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
 
-        # 视图菜单
+        # View menu
         view_menu = menubar.addMenu("视图")
 
         fullscreen_action = QAction("全屏", self)
@@ -517,7 +517,7 @@ class YoloVisualizationApp(QMainWindow):
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
 
-        # 帮助菜单
+        # Help menu
         help_menu = menubar.addMenu("帮助")
 
         about_action = QAction("关于", self)
@@ -525,15 +525,17 @@ class YoloVisualizationApp(QMainWindow):
         help_menu.addAction(about_action)
 
     def create_tool_bar(self):
-        """创建工具栏"""
-        # 工具栏已不再包含设置和保存按钮，故留空或添加其他常用操作
+        """Create the toolbar container.
+
+        The toolbar is intentionally minimal in the current UI.
+        """
         pass
 
     def create_tray_icon(self):
-        """创建系统托盘图标"""
+        """Create the system tray icon and context menu."""
         self.tray_icon = QSystemTrayIcon(self)
         fallback_icon = ICONS_DIR / "favicon.ico"
-        # 检查self.style()是否为None，或使用默认图标路径
+        # Use a style icon first, then fallback to a bundled icon file.
         icon = (
             self.style().standardIcon(self.style().SP_ComputerIcon)
             if self.style()
@@ -543,7 +545,7 @@ class YoloVisualizationApp(QMainWindow):
             icon = QIcon(str(fallback_icon))
         self.tray_icon.setIcon(icon)
 
-        # 创建托盘菜单
+        # Build tray context menu.
         tray_menu = QMenu()
         show_action = tray_menu.addAction("显示")
         show_action.triggered.connect(self.show)
@@ -554,7 +556,7 @@ class YoloVisualizationApp(QMainWindow):
         self.tray_icon.show()
 
     def show_settings_dialog(self):
-        """显示设置对话框"""
+        """Open the settings launcher dialog."""
         dlg = QDialog(self)
         dlg.setWindowTitle("设置")
         dlg.resize(300, 150)
@@ -567,7 +569,7 @@ class YoloVisualizationApp(QMainWindow):
         layout.addWidget(density_btn)
 
         def on_model():
-            # 这里只处理模型选择和识别类别
+            # Handle model selection and detectable classes.
             sdlg = SettingsDialog(
                 self, self.model_path, self.all_classes, self.selected_classes
             )
@@ -576,7 +578,7 @@ class YoloVisualizationApp(QMainWindow):
                 self.load_model_and_classes(model_path)
                 self.selected_classes = selected_classes
                 self.bird_detector.selected_classes = self.selected_classes
-                # 如果密度图类别未设置，默认与识别类别一致
+                # Keep density classes aligned with selected classes.
                 if not hasattr(self, "density_classes") or not self.density_classes:
                     self.density_classes = set(selected_classes)
                 else:
@@ -584,12 +586,12 @@ class YoloVisualizationApp(QMainWindow):
                         cls for cls in self.density_classes if cls in selected_classes
                     } or set(selected_classes)
                 self.bird_detector.density_classes = set(self.density_classes)
-                # 保存到config.txt
+                # Persist settings.
                 save_config(model_path, selected_classes, self.density_classes)
 
         def on_density():
-            # 这里只处理密度图类别选择
-            # DensityDialog只需要当前识别类别列表供选择
+            # Handle density-chart class selection.
+            # DensityDialog consumes the currently selected detection classes.
             ddialog = DensityDialog(self, density_classes=list(self.selected_classes))
             if ddialog.exec_():
                 self.density_classes = ddialog.get_result()
@@ -604,7 +606,7 @@ class YoloVisualizationApp(QMainWindow):
         dlg.exec_()
 
     def toggle_detection(self):
-        """切换检测状态"""
+        """Toggle detection state between running and paused."""
         self.is_detecting = not self.is_detecting
         if self.is_detecting:
             self.start_stop_button.setText("停止检测")
@@ -618,19 +620,19 @@ class YoloVisualizationApp(QMainWindow):
                 self.style().standardIcon(self.style().SP_MediaPlay)
             )
             self.statusBar.showMessage("检测已停止")
-            # 清空当前检测信息
+            # Reset frame-level detection state.
             if hasattr(self.bird_detector, "current_detection_info"):
                 self.bird_detector.current_detection_info = []
             self.bird_detector.total_objects = 0
             self.count_label.setText("识别到的鸟类数量: 0")
 
     def open_video(self):
-        """打开视频文件"""
+        """Open and use a local video file as input."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "打开视频文件", "", "视频文件 (*.mp4 *.avi *.mkv)"
         )
         if file_path:
-            # 如果cap已打开，先释放
+            # Release existing capture before opening a new source.
             if self.cap and self.cap.isOpened():
                 self.cap.release()
             self.cap = cv2.VideoCapture(file_path)
@@ -641,21 +643,21 @@ class YoloVisualizationApp(QMainWindow):
                 self.cap = None
             else:
                 self.statusBar.showMessage(f"已打开视频: {os.path.basename(file_path)}")
-                self.is_detecting = False  # 打开视频后停止检测
+                self.is_detecting = False  # Pause detection after loading a new video.
                 self.start_stop_button.setText("开始检测")
                 self.start_stop_button.setIcon(
                     self.style().standardIcon(self.style().SP_MediaPlay)
                 )
 
     def toggle_fullscreen(self):
-        """切换全屏状态"""
+        """Toggle fullscreen mode."""
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
 
     def show_about(self):
-        """显示关于对话框"""
+        """Show the About dialog."""
         QMessageBox.about(
             self,
             "关于",
@@ -663,9 +665,9 @@ class YoloVisualizationApp(QMainWindow):
         )
 
     def detect_cameras(self):
-        """检测系统中可用的摄像头"""
+        """Return IDs of available camera devices."""
         available_cameras = []
-        for i in range(10):  # 检查前10个摄像头索引
+        for i in range(10):  # Probe the first ten camera indices.
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
                 ret, _ = cap.read()
@@ -675,7 +677,7 @@ class YoloVisualizationApp(QMainWindow):
         return available_cameras
 
     def show_camera_selection_dialog(self):
-        """显示摄像头选择对话框"""
+        """Show a dialog for selecting the active camera."""
         if not self.available_cameras:
             QMessageBox.warning(self, "警告", "未检测到可用的摄像头！")
             return False
@@ -684,16 +686,16 @@ class YoloVisualizationApp(QMainWindow):
         dialog.setWindowTitle("选择摄像头")
         layout = QVBoxLayout(dialog)
 
-        # 添加说明标签
+        # Add instruction label.
         layout.addWidget(QLabel("请选择要使用的摄像头："))
 
-        # 创建摄像头选择下拉框
+        # Build camera selector.
         camera_combo = QComboBox()
         for camera_id in self.available_cameras:
             camera_combo.addItem(f"摄像头 {camera_id}", camera_id)
         layout.addWidget(camera_combo)
 
-        # 添加按钮
+        # Add action buttons.
         button_layout = QHBoxLayout()
         ok_button = QPushButton("确定")
         cancel_button = QPushButton("取消")
@@ -701,41 +703,41 @@ class YoloVisualizationApp(QMainWindow):
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
 
-        # 连接按钮信号
+        # Connect button signals.
         ok_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
 
-        # 显示对话框
+        # Show dialog and return selected camera ID.
         if dialog.exec_() == QDialog.Accepted:
             self.selected_camera = camera_combo.currentData()
             return True
         return False
 
     def update_frame(self):
-        """更新视频帧并进行检测"""
-        # 计算实际FPS
+        """Fetch the next frame, optionally run detection, and refresh UI."""
+        # Estimate real-time FPS.
         current_time = QDateTime.currentDateTime()
         elapsed = self.last_frame_time.msecsTo(current_time)
-        if elapsed > 0:  # 避免除以零
+        if elapsed > 0:  # Avoid division by zero.
             current_fps = 1000 / elapsed
-            self.fps = (self.fps * 0.9) + (current_fps * 0.1)  # 平滑FPS显示
+            self.fps = (self.fps * 0.9) + (current_fps * 0.1)  # Smooth FPS updates.
         self.last_frame_time = current_time
 
         if not self.is_detecting:
-            # 如果停止检测，继续读取帧并显示，但不进行推理和统计
+            # Keep previewing frames when detection is paused.
             if self.cap is None:
                 if self.selected_camera is None:
-                    # 如果没有选中的摄像头，弹出选择对话框
+                    # Ask the user to choose a camera if none is selected.
                     if not self.show_camera_selection_dialog():
                         return
                 self.cap = cv2.VideoCapture(self.selected_camera)
-                # 设置摄像头分辨率为640x640
+                # Set camera resolution to 640x640.
                 self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
                 self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
-                # 设置摄像头缓冲区大小
+                # Reduce camera buffer latency.
                 self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 if not self.cap.isOpened():
-                    # 显示摄像头未打开的占位符
+                    # Show placeholder frame when camera cannot be opened.
                     black_image = np.zeros((640, 640, 3), dtype=np.uint8)
                     no_camera_icon_path = ICONS_DIR / "no_camera.png"
                     if no_camera_icon_path.exists():
@@ -743,7 +745,7 @@ class YoloVisualizationApp(QMainWindow):
                             str(no_camera_icon_path), cv2.IMREAD_UNCHANGED
                         )
                         if icon is not None:
-                            # 调整图标大小并叠加到黑色背景
+                            # Resize and overlay the icon on a black background.
                             icon_height, icon_width = icon.shape[:2]
                             scale = min(400 / icon_width, 300 / icon_height)
                             resized_icon = cv2.resize(
@@ -793,7 +795,7 @@ class YoloVisualizationApp(QMainWindow):
                     self.statusBar.showMessage("视频播放完毕或无法读取帧")
                     return
 
-            # 显示非检测状态下的画面
+            # Render preview frame without detection overlays.
             processed_frame = frame
             self.count_label.setText("识别到的鸟类数量: 0")
             self.fps_label.setText(f"FPS: {self.fps:.1f}")
@@ -822,10 +824,10 @@ class YoloVisualizationApp(QMainWindow):
                     )
                     return
             self.cap = cv2.VideoCapture(self.selected_camera)
-            # 设置摄像头分辨率为640x640
+            # Set camera resolution to 640x640.
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 640)
-            # 设置摄像头缓冲区大小
+            # Reduce camera buffer latency.
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             if not self.cap.isOpened():
                 self.statusBar.showMessage("摄像头无法打开或不可用")
@@ -849,15 +851,15 @@ class YoloVisualizationApp(QMainWindow):
                 )
                 return
 
-        # 处理帧
+        # Run frame inference.
         processed_frame = self.bird_detector.process_frame(frame)
 
-        # 更新计数标签
+        # Update detection counter label.
         self.count_label.setText(
             f"识别到的鸟类数量: {self.bird_detector.total_objects}"
         )
 
-        # 记录数量密度数据
+        # Collect data for the density chart.
         now_dt = datetime.now()
         current_frame_class_counts = {cls: 0 for cls in sorted(self.density_classes)}
         if hasattr(self.bird_detector, "current_detection_info"):
@@ -866,7 +868,7 @@ class YoloVisualizationApp(QMainWindow):
                 if class_name in self.density_classes:
                     current_frame_class_counts[class_name] += 1
 
-        # 每秒写入一次趋势数据，避免 IO 过于频繁
+        # Write trend data at most once per second to avoid excessive I/O.
         if hasattr(self.bird_detector, "current_detection_info"):
             current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             if (
@@ -879,13 +881,15 @@ class YoloVisualizationApp(QMainWindow):
                 self.last_csv_save_second = current_second
 
         total_objects_for_density = sum(current_frame_class_counts.values())
-        self.recognition_data.append(
-            (now_dt, total_objects_for_density, current_frame_class_counts)
-        )
+        self.recognition_data.append((
+            now_dt,
+            total_objects_for_density,
+            current_frame_class_counts,
+        ))
         if len(self.recognition_data) > 300:
             self.recognition_data.pop(0)
 
-        # 更新视频显示
+        # Refresh video display.
         h, w, ch = processed_frame.shape
         bytes_per_line = ch * w
         qt_image = QImage(
@@ -898,7 +902,7 @@ class YoloVisualizationApp(QMainWindow):
             )
         )
 
-        # 更新图表
+        # Refresh chart on a throttled interval.
         if (
             self.last_chart_update.msecsTo(current_time)
             >= self.chart_update_interval_ms
@@ -907,28 +911,28 @@ class YoloVisualizationApp(QMainWindow):
             self.last_chart_update = current_time
 
     def update_density_chart(self):
-        """更新密度图表"""
+        """Redraw the density chart using buffered samples."""
         if not self.recognition_data or not getattr(self, "density_classes", None):
             self.ax.clear()
             self.ax.set_title("数量密度分布（暂无数据）")
             self.canvas.draw()
             return
 
-        # 统计每个类别的时间序列
+        # Build per-class time series.
         from collections import defaultdict
 
         class_time_count = defaultdict(list)
         timestamps = [item[0] for item in self.recognition_data]
         plot_classes = sorted(self.density_classes)
-        # 统计每个类别在每个时间点的数量
+        # Append values for each class at each timestamp.
         for _, _, frame_classes in self.recognition_data:
             for cls in plot_classes:
                 class_time_count[cls].append(frame_classes.get(cls, 0))
 
         self.ax.clear()
-        # 兼容新版matplotlib的colormap获取方式
+        # Handle colormap retrieval for newer Matplotlib versions.
         if hasattr(matplotlib, "colormaps"):
-            # 只为实际需要绘制的类别分配颜色
+            # Only allocate colors for classes with non-zero history.
             valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
             if not valid_classes:
                 self.ax.set_title("数量密度分布（暂无数据）")
@@ -952,7 +956,7 @@ class YoloVisualizationApp(QMainWindow):
         else:
             import matplotlib.cm as cm
 
-            # 只为实际需要绘制的类别分配颜色
+            # Only allocate colors for classes with non-zero history.
             valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
             if not valid_classes:
                 self.ax.set_title("数量密度分布（暂无数据）")
@@ -991,7 +995,7 @@ class YoloVisualizationApp(QMainWindow):
         self.canvas.draw()
 
     def save_data_to_csv(self):
-        """保存检测数据到CSV文件"""
+        """Save the current frame detections to a CSV file."""
         if (
             not self.bird_detector
             or not hasattr(self.bird_detector, "current_detection_info")
@@ -1005,12 +1009,12 @@ class YoloVisualizationApp(QMainWindow):
         )
         if file_path:
             try:
-                # 写入所有检测到的目标，不论是否勾选显示
-                # 写入表头
+                # Export all detections from the current frame.
+                # Write header row.
                 with open(file_path, "w", newline="", encoding="utf-8") as csvfile:
                     writer = csv.writer(csvfile)
                     writer.writerow(["时间戳", "类别", "总数量"])
-                    # 写入每一帧的所有检测信息
+                    # Write row data for each detected object.
                     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     total_objects = len(self.bird_detector.current_detection_info)
                     for info in self.bird_detector.current_detection_info:
@@ -1020,7 +1024,7 @@ class YoloVisualizationApp(QMainWindow):
                 self.statusBar.showMessage(f"保存文件失败: {e}")
 
     def closeEvent(self, event):
-        """关闭窗口事件处理"""
+        """Handle graceful shutdown and optional trend plotting."""
         reply = QMessageBox.question(
             self,
             "确认退出",
@@ -1030,14 +1034,14 @@ class YoloVisualizationApp(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            # 停止摄像头
+            # Release camera resources.
             if self.cap and self.cap.isOpened():
                 self.cap.release()
             self.timer.stop()
             cv2.destroyAllWindows()
-            # 生成趋势图（使用保存的CSV文件，如果存在）
+            # Generate trend chart from saved CSV data when possible.
             try:
-                # 调用ObjectDetector的plot_trends方法
+                # Use the detector helper to generate the trend chart.
                 if hasattr(self, "bird_detector") and self.bird_detector:
                     self.bird_detector.plot_trends()
             except Exception as e:
@@ -1047,8 +1051,8 @@ class YoloVisualizationApp(QMainWindow):
             event.ignore()
 
     def load_model_and_classes(self, model_path):
-        """加载模型和类别"""
-        # 主动释放旧模型
+        """Load a model and synchronize class selections."""
+        # Proactively release any previous model instance.
         if hasattr(self, "bird_detector") and self.bird_detector is not None:
             del self.bird_detector
             gc.collect()
@@ -1056,7 +1060,7 @@ class YoloVisualizationApp(QMainWindow):
             self.model_path = resolve_model_path(model_path)
             self.bird_detector = ObjectDetector(self.model_path)
             self.all_classes = list(self.bird_detector.model.names.values())
-            # 初始时，识别类别和密度图类别都等于模型的全部类别
+            # Keep selected and density classes valid for the new model.
             if not hasattr(self, "selected_classes") or not self.selected_classes:
                 self.selected_classes = set(self.all_classes)
             else:
@@ -1079,9 +1083,9 @@ class YoloVisualizationApp(QMainWindow):
 
         except Exception as e:
             self.statusBar.showMessage(f"加载模型失败: {e}")
-            # 如果加载失败，清空类别和模型路径
+            # Reset state when model loading fails.
             self.model_path = None
             self.all_classes = []
             self.selected_classes = set()
             self.density_classes = set()
-            self.bird_detector = None  # 清空检测器对象
+            self.bird_detector = None  # Clear detector object.

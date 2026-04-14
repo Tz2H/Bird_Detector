@@ -1,16 +1,16 @@
 """
-UI组件模块 - 包含自定义Mac风格的按钮和框架
-Creater Tz2H
+Reusable UI components for the Bird Detector interface.
+Author: Tz2H
 """
 
 from PyQt5.QtWidgets import QPushButton, QFrame
 
 
 class MacStyleButton(QPushButton):
-    """Mac风格按钮"""
+    """Styled push button with a macOS-like appearance."""
 
     def __init__(self, text, parent=None):
-        """初始化Mac风格按钮"""
+        """Initialize the styled button."""
         super().__init__(text, parent)
         self.setStyleSheet("""
             QPushButton {
@@ -36,10 +36,10 @@ class MacStyleButton(QPushButton):
 
 
 class MacStyleFrame(QFrame):
-    """Mac风格框架"""
+    """Styled frame container with a macOS-like appearance."""
 
     def __init__(self, parent=None):
-        """初始化Mac风格框架"""
+        """Initialize the styled frame."""
         super().__init__(parent)
         self.setStyleSheet("""
             QFrame {

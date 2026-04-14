@@ -1,1 +1,1 @@
-"""鸟类检测系统包"""
+"""Bird detector application package."""
