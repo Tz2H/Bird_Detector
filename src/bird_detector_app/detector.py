@@ -1,5 +1,6 @@
 """
 Core object detection logic and plotting helpers.
+
 Author: Tz2H
 """
 

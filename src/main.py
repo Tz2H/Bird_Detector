@@ -1,4 +1,5 @@
-"""Application entry point for the Bird Detector GUI.
+"""
+Application entry point for the Bird Detector GUI.
 
 Author: Tz2H
 """
