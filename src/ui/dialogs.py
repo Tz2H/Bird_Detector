@@ -1,5 +1,6 @@
 """
 Dialog components for model and density configuration.
+
 Author: Tz2H
 """
 

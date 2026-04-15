@@ -1,5 +1,6 @@
 """
 Reusable UI components for the Bird Detector interface.
+
 Author: Tz2H
 """
 

@@ -13,3 +13,6 @@ results/
 
 # Virtual environments
 .venv
+
+# Agent logs
+cooperative_agent.log
