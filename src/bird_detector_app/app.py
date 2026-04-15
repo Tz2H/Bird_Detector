@@ -29,7 +29,7 @@ class YoloVisualizationApp(
         super().__init__()
         configure_matplotlib_fonts()
         self.setWindowTitle("鸟类检测系统")
-        self.setGeometry(100, 100, 1440, 900)
+        self.setGeometry(100, 100, 1280, 800)
 
         # Initialize runtime state.
         self.all_classes = []

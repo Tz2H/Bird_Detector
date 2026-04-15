@@ -304,12 +304,26 @@ class RuntimeMixin:
             current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             if (
                 self.bird_detector.current_detection_info
-                and current_second != self.last_csv_save_second
+                and current_second != getattr(self, 'last_csv_save_second', None)
             ):
                 self.bird_detector.save_to_csv(
                     self.bird_detector.current_detection_info
                 )
                 self.last_csv_save_second = current_second
+
+        # Feed the real-time textual tracking log if applicable
+        if hasattr(self, 'log_text_edit'):
+            total_logged = sum(current_frame_class_counts.values())
+            if total_logged > 0:
+                log_lines = [f"🟢 监控激活 - 定位到目标 ({now_dt.strftime('%H:%M:%S')})", "=" * 32]
+                for class_name, count in current_frame_class_counts.items():
+                    if count > 0:
+                        log_lines.append(f"  ▶ {class_name}: {count} 实体")
+                log_lines.append("=" * 32)
+                log_lines.append(f"⚡ 推理速度: {self.fps:.1f} FPS")
+                self.log_text_edit.setText("\n".join(log_lines))
+            else:
+                self.log_text_edit.setText(f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标")
 
         total_objects_for_density = sum(current_frame_class_counts.values())
         self.recognition_data.append((
@@ -347,7 +361,14 @@ class RuntimeMixin:
         """Redraw the density chart using buffered samples."""
         if not self.recognition_data or not getattr(self, "density_classes", None):
             self.ax.clear()
-            self.ax.set_title("数量密度分布（暂无数据）")
+            self.fig.patch.set_facecolor("#171A21")
+            self.ax.set_facecolor("#171A21")
+            self.ax.spines['top'].set_visible(False)
+            self.ax.spines['right'].set_visible(False)
+            self.ax.spines['left'].set_color("#292D3E")
+            self.ax.spines['bottom'].set_color("#292D3E")
+            self.ax.tick_params(colors="#64748B")
+            self.ax.set_title("数量密度分布（暂无数据）", fontsize=15, fontweight="600", color="#F8FAFC", pad=12)
             self.canvas.draw()
             return
 
@@ -415,10 +436,19 @@ class RuntimeMixin:
                     color=color,
                 )
 
-        self.ax.set_xlabel("时间", fontsize=12)
-        self.ax.set_ylabel("数量", fontsize=12)
-        self.ax.set_title("数量密度分布", fontsize=14, fontweight="bold")
-        self.ax.grid(True, linestyle="--", alpha=0.4)
+        self.ax.set_xlabel("时间", fontsize=12, color="#94A3B8")
+        self.ax.set_ylabel("数量", fontsize=12, color="#94A3B8")
+        self.ax.set_title("数量密度分布", fontsize=15, fontweight="600", color="#F8FAFC", pad=12)
+        self.ax.grid(True, linestyle=":", alpha=0.15, color="#F8FAFC")
+        
+        # Modernize dark style
+        self.fig.patch.set_facecolor("#171A21")  # Match MacStyleFrame color
+        self.ax.set_facecolor("#171A21")
+        self.ax.spines['top'].set_visible(False)
+        self.ax.spines['right'].set_visible(False)
+        self.ax.spines['left'].set_color("#292D3E")
+        self.ax.spines['bottom'].set_color("#292D3E")
+        self.ax.tick_params(colors="#64748B")
 
         locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
         formatter = mdates.ConciseDateFormatter(locator)
@@ -426,9 +456,16 @@ class RuntimeMixin:
         self.ax.xaxis.set_major_formatter(formatter)
         self.fig.autofmt_xdate(rotation=30)
 
-        self.ax.legend(
+        legend = self.ax.legend(
             fontsize=12, loc="upper left", frameon=True, fancybox=True, shadow=True
         )
+        if legend:
+            legend.get_frame().set_facecolor("#1E2330")
+            legend.get_frame().set_edgecolor("#292D3E")
+            for text in legend.get_texts():
+                text.set_color("#CBD5E1")
+
+        self.fig.tight_layout()
         self.canvas.draw()
 
     def save_data_to_csv(self):
