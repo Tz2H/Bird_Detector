@@ -12,70 +12,50 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
-from bird_detector_app.paths import CONFIG_FILE, ICONS_DIR
+from bird_detector_app.paths import ICONS_DIR
 from ui.dialogs import DensityDialog, SettingsDialog
-from utils.config_manager import resolve_model_path, save_config
+from utils.config_manager import load_initial_config, save_config
 
 
 class ConfigMixin:
     """Mixin that handles settings, menus, and tray interactions."""
 
-    def load_config(self):
-        """Load persisted configuration from config.txt."""
-        if CONFIG_FILE.exists():
-            try:
-                with open(CONFIG_FILE, "r", encoding="utf-8") as file:
-                    for line in file:
-                        line = line.strip()
-                        if line.startswith("model="):
-                            model_path = resolve_model_path(
-                                line.split("=", 1)[1].strip()
-                            )
-                            if os.path.exists(model_path):
-                                self.load_model_and_classes(model_path)
-                                self.statusBar.showMessage(
-                                    f"已加载模型: {os.path.basename(model_path)}"
-                                )
-                            else:
-                                self.statusBar.showMessage("配置中指定的模型文件不存在")
-                        elif line.startswith("classes="):
-                            classes_str = line.split("=", 1)[1].strip()
-                            if classes_str:
-                                self.selected_classes = {
-                                    cls for cls in classes_str.split(",") if cls
-                                }
-                                self.bird_detector.selected_classes = (
-                                    self.selected_classes
-                                )
-                                # Default density classes to selected classes.
-                                if (
-                                    not hasattr(self, "density_classes")
-                                    or not self.density_classes
-                                ):
-                                    self.density_classes = set(self.selected_classes)
-                                    self.bird_detector.density_classes = set(
-                                        self.selected_classes
-                                    )
-                            else:
-                                self.selected_classes = set()
-                                self.bird_detector.selected_classes = set()
-                                self.density_classes = set()
-                                self.bird_detector.density_classes = set()
-                        elif line.startswith("density="):
-                            density_str = line.split("=", 1)[1].strip()
-                            if density_str:
-                                self.density_classes = {
-                                    cls for cls in density_str.split(",") if cls
-                                }
-                            else:
-                                self.density_classes = set()
-                            self.bird_detector.density_classes = set(
-                                self.density_classes
-                            )
-            except Exception as error:
-                self.statusBar.showMessage(f"读取config.txt失败: {error}")
-        else:
-            self.statusBar.showMessage("未找到config.txt文件，请进行设置")
+    def load_config(self, config_data=None):
+        """Load persisted or injected startup configuration."""
+        try:
+            config = config_data or load_initial_config()
+            self.load_model_and_classes(config.get("model_path"))
+
+            detector = getattr(self, "bird_detector", None)
+            if detector is None:
+                self.statusBar.showMessage("模型加载失败，请在设置中重新选择模型")
+                return
+
+            configured_selected = set(config.get("selected_classes") or [])
+            if configured_selected:
+                selected_classes = {
+                    cls for cls in configured_selected if cls in self.all_classes
+                } or set(self.all_classes)
+            else:
+                selected_classes = set(self.all_classes)
+
+            configured_density = set(config.get("density_classes") or [])
+            if configured_density:
+                density_classes = {
+                    cls for cls in configured_density if cls in selected_classes
+                } or set(selected_classes)
+            else:
+                density_classes = set(selected_classes)
+
+            self.selected_classes = selected_classes
+            self.density_classes = density_classes
+            detector.selected_classes = set(self.selected_classes)
+            detector.density_classes = set(self.density_classes)
+
+            model_name = os.path.basename(self.model_path) if self.model_path else "默认模型"
+            self.statusBar.showMessage(f"已加载配置: {model_name}")
+        except Exception as error:
+            self.statusBar.showMessage(f"读取配置失败: {error}")
 
     def create_menu_bar(self):
         """Create the application menu bar."""
@@ -169,30 +149,51 @@ class ConfigMixin:
             if settings_dialog.exec_():
                 model_path, selected_classes = settings_dialog.get_result()
                 self.load_model_and_classes(model_path)
-                self.selected_classes = selected_classes
-                self.bird_detector.selected_classes = self.selected_classes
+                if not getattr(self, "bird_detector", None):
+                    return
+
+                self.selected_classes = {
+                    cls for cls in selected_classes if cls in self.all_classes
+                } or set(self.all_classes)
+                self.bird_detector.selected_classes = set(self.selected_classes)
 
                 # Keep density classes aligned with selected classes.
                 if not hasattr(self, "density_classes") or not self.density_classes:
-                    self.density_classes = set(selected_classes)
+                    self.density_classes = set(self.selected_classes)
                 else:
                     self.density_classes = {
-                        cls for cls in self.density_classes if cls in selected_classes
-                    } or set(selected_classes)
+                        cls
+                        for cls in self.density_classes
+                        if cls in self.selected_classes
+                    } or set(self.selected_classes)
                 self.bird_detector.density_classes = set(self.density_classes)
 
                 # Persist settings.
-                save_config(model_path, selected_classes, self.density_classes)
+                save_config(
+                    self.model_path,
+                    self.selected_classes,
+                    self.density_classes,
+                )
 
         def on_density():
             # Handle density-chart class selection.
-            # DensityDialog consumes the currently selected detection classes.
+            available_classes = sorted(self.selected_classes)
+            initial_density_classes = {
+                cls for cls in self.density_classes if cls in self.selected_classes
+            }
+            if not initial_density_classes:
+                initial_density_classes = set(available_classes)
+
             density_dialog = DensityDialog(
-                self, density_classes=list(self.selected_classes)
+                self,
+                available_classes=available_classes,
+                selected_classes=initial_density_classes,
             )
             if density_dialog.exec_():
+                if not getattr(self, "bird_detector", None):
+                    return
                 self.density_classes = density_dialog.get_result()
-                self.bird_detector.density_classes = self.density_classes
+                self.bird_detector.density_classes = set(self.density_classes)
                 save_config(
                     self.model_path, self.selected_classes, self.density_classes
                 )

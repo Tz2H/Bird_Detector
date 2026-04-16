@@ -20,16 +20,7 @@ def main():
     app = QApplication(sys.argv)
 
     # Create the main window after QApplication is initialized.
-    main_window = YoloVisualizationApp()
-
-    # Apply model and class settings before showing the window.
-    main_window.load_model_and_classes(initial_config["model_path"])
-    if initial_config["selected_classes"]:
-        main_window.selected_classes = initial_config["selected_classes"]
-        main_window.bird_detector.selected_classes = initial_config["selected_classes"]
-    if initial_config["density_classes"]:
-        main_window.density_classes = initial_config["density_classes"]
-        main_window.bird_detector.density_classes = initial_config["density_classes"]
+    main_window = YoloVisualizationApp(initial_config=initial_config)
 
     main_window.show()
     sys.exit(app.exec_())

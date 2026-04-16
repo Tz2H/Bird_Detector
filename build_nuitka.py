@@ -369,8 +369,10 @@ def build_executable() -> None:
             print(tail_lines(output_text))
 
         print("\nCheck the missing dependency or resource path reported above.")
+        raise SystemExit(error.returncode)
     except Exception as error:  # pragma: no cover
         print(f"\nAn unexpected error occurred during the build process: {error}")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

@@ -4,12 +4,16 @@ Dialog components for model and density configuration.
 Author: Tz2H
 """
 
+from PyQt5.QtCore import Qt
+
 from PyQt5.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -75,15 +79,21 @@ class SettingsDialog(QDialog):
             self, "选择YOLO模型", "", "模型文件 (*.pt)"
         )
         if file_path:
-            model = YOLO(file_path)
-            self.model_path = file_path
-            self.all_classes = list(model.names.values())
-            self.result_model_path = file_path
-            self.result_selected_classes = set(
-                self.all_classes
-            )  # Select all by default.
-            self.refresh_class_checkboxes()
-            self.model_label.setText(file_path)
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            try:
+                model = YOLO(file_path)
+                self.model_path = file_path
+                self.all_classes = list(model.names.values())
+                self.result_model_path = file_path
+                self.result_selected_classes = set(
+                    self.all_classes
+                )  # Select all by default.
+                self.refresh_class_checkboxes()
+                self.model_label.setText(file_path)
+            except Exception as error:
+                QMessageBox.warning(self, "模型加载失败", f"无法加载模型: {error}")
+            finally:
+                QApplication.restoreOverrideCursor()
 
     def refresh_class_checkboxes(self):
         """Rebuild class checkboxes from current class data."""
@@ -115,12 +125,13 @@ class SettingsDialog(QDialog):
 class DensityDialog(QDialog):
     """Dialog for configuring classes shown in density charts."""
 
-    def __init__(self, parent=None, density_classes=None):
+    def __init__(self, parent=None, available_classes=None, selected_classes=None):
         """Initialize the density configuration dialog."""
         super().__init__(parent)
         self.setWindowTitle("密度图设置")
         self.resize(400, 600)
-        self.density_classes = density_classes if density_classes else set()
+        self.available_classes = list(available_classes or [])
+        self.selected_classes = set(selected_classes or self.available_classes)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -156,20 +167,20 @@ class DensityDialog(QDialog):
             cb.deleteLater()
         self.density_checkboxes = []
         # Build new checkbox widgets.
-        for cls in self.density_classes:
+        for cls in self.available_classes:
             cb = QCheckBox(cls)
-            cb.setChecked(True)
+            cb.setChecked(cls in self.selected_classes)
             cb.stateChanged.connect(self.update_density_classes)
             self.class_layout.addWidget(cb)
             self.density_checkboxes.append(cb)
 
     def update_density_classes(self):
         """Update density classes from checkbox state."""
-        self.density_classes = set()
+        self.selected_classes = set()
         for cb in self.density_checkboxes:
             if cb.isChecked():
-                self.density_classes.add(cb.text())
+                self.selected_classes.add(cb.text())
 
     def get_result(self):
         """Return selected density classes."""
-        return self.density_classes
+        return self.selected_classes

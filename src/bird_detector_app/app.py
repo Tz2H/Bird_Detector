@@ -4,13 +4,13 @@ Main GUI application for Bird Detector.
 Author: Tz2H
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PyQt5.QtCore import QDateTime, QTimer
 from PyQt5.QtWidgets import QHBoxLayout, QMainWindow, QStatusBar, QVBoxLayout, QWidget
 
 from bird_detector_app.config_mixin import ConfigMixin
-from bird_detector_app.detector import ObjectDetector
 from bird_detector_app.layout_mixin import LayoutMixin
-from bird_detector_app.paths import DEFAULT_MODEL_PATH
 from bird_detector_app.runtime_mixin import RuntimeMixin
 from bird_detector_app.style_mixin import StyleMixin, configure_matplotlib_fonts
 
@@ -24,7 +24,7 @@ class YoloVisualizationApp(
 ):
     """Main window for real-time YOLO visualization."""
 
-    def __init__(self):
+    def __init__(self, initial_config=None):
         """Initialize the main window and runtime state."""
         super().__init__()
         configure_matplotlib_fonts()
@@ -46,9 +46,9 @@ class YoloVisualizationApp(
         self.last_chart_update = QDateTime.currentDateTime()
         self.chart_update_interval_ms = 250
         self.last_csv_save_second = None
-
-        # Initialize detector backend.
-        self.bird_detector = ObjectDetector(str(DEFAULT_MODEL_PATH))
+        self.inference_executor = ThreadPoolExecutor(max_workers=1)
+        self.pending_inference = None
+        self.bird_detector = None
 
         # Apply global stylesheet.
         self.set_application_style()
@@ -84,15 +84,11 @@ class YoloVisualizationApp(
         # Initialize the embedded Matplotlib canvas.
         self.init_matplotlib_canvas()
 
-        # Default density classes follow detection classes.
-        self.density_classes = set(self.all_classes)
-        self.bird_detector.density_classes = set(self.all_classes)
-
         # Initialize video capture and timer.
         self.cap = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(1)  # Run as fast as possible with a 1 ms interval.
+        self.timer.start(16)  # Target ~60 FPS UI refresh without busy polling.
 
         # Buffer detection samples for the density chart.
         self.recognition_data = []  # [(timestamp, total_count, {class_name: count}), ...]
@@ -100,5 +96,5 @@ class YoloVisualizationApp(
         # Initialize system tray icon.
         self.create_tray_icon()
 
-        # Load persisted user configuration.
-        self.load_config()
+        # Load persisted or injected startup configuration once.
+        self.load_config(initial_config)

@@ -30,27 +30,62 @@ from utils.config_manager import resolve_model_path
 class RuntimeMixin:
     """Mixin that handles runtime user interactions and frame processing."""
 
-    def toggle_detection(self):
-        """Toggle detection state between running and paused."""
-        self.is_detecting = not self.is_detecting
-        if self.is_detecting:
+    def _set_detection_state(self, running, message=None):
+        """Set detection state and keep button UI in sync."""
+        self.is_detecting = running
+        if running:
             self.start_stop_button.setText("停止检测")
             self.start_stop_button.setIcon(
                 self.style().standardIcon(self.style().SP_MediaStop)
             )
-            self.statusBar.showMessage("检测中...")
         else:
             self.start_stop_button.setText("开始检测")
             self.start_stop_button.setIcon(
                 self.style().standardIcon(self.style().SP_MediaPlay)
             )
-            self.statusBar.showMessage("检测已停止")
 
+        if message:
+            self.statusBar.showMessage(message)
+
+    def _clear_pending_inference(self, wait=False):
+        """Cancel and clear pending inference future when possible."""
+        pending = getattr(self, "pending_inference", None)
+        if pending is None:
+            self.pending_inference = None
+            return True
+
+        if not pending.done():
+            if wait:
+                try:
+                    pending.result(timeout=5)
+                except Exception:
+                    if not pending.cancel():
+                        return False
+            else:
+                pending.cancel()
+
+        self.pending_inference = None
+        return True
+
+    def toggle_detection(self):
+        """Toggle detection state between running and paused."""
+        if not self.is_detecting:
+            if getattr(self, "bird_detector", None) is None:
+                self.statusBar.showMessage("模型未加载，无法开始检测")
+                return
+            self._set_detection_state(True, "检测中...")
+            return
+
+        self._set_detection_state(False, "检测已停止")
+        self._clear_pending_inference()
+
+        detector = getattr(self, "bird_detector", None)
+        if detector is not None:
             # Reset frame-level detection state.
-            if hasattr(self.bird_detector, "current_detection_info"):
-                self.bird_detector.current_detection_info = []
-            self.bird_detector.total_objects = 0
-            self.count_label.setText("识别到的鸟类数量: 0")
+            if hasattr(detector, "current_detection_info"):
+                detector.current_detection_info = []
+            detector.total_objects = 0
+        self.count_label.setText("识别到的鸟类数量: 0")
 
     def open_video(self):
         """Open and use a local video file as input."""
@@ -69,12 +104,11 @@ class RuntimeMixin:
                 )
                 self.cap = None
             else:
-                self.statusBar.showMessage(f"已打开视频: {os.path.basename(file_path)}")
-                self.is_detecting = False  # Pause detection after loading a new video.
-                self.start_stop_button.setText("开始检测")
-                self.start_stop_button.setIcon(
-                    self.style().standardIcon(self.style().SP_MediaPlay)
+                # Pause detection after loading a new video.
+                self._set_detection_state(
+                    False, f"已打开视频: {os.path.basename(file_path)}"
                 )
+                self._clear_pending_inference()
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode."""
@@ -140,6 +174,22 @@ class RuntimeMixin:
             return True
         return False
 
+    def _render_frame_to_video_label(self, frame):
+        """Render an OpenCV frame onto the preview label."""
+        h, w, ch = frame.shape
+        bytes_per_line = ch * w
+        qt_image = QImage(
+            frame.data, w, h, bytes_per_line, QImage.Format_RGB888
+        ).rgbSwapped()
+        pixmap = QPixmap.fromImage(qt_image)
+        self.video_label.setPixmap(
+            pixmap.scaled(
+                self.video_label.width(),
+                self.video_label.height(),
+                Qt.KeepAspectRatio,
+            )
+        )
+
     def update_frame(self):
         """Fetch the next frame, optionally run detection, and refresh UI."""
         # Estimate real-time FPS.
@@ -201,19 +251,7 @@ class RuntimeMixin:
                     processed_frame = black_image
                     self.count_label.setText("识别到的鸟类数量: 0")
                     self.fps_label.setText(f"FPS: {self.fps:.1f}")
-                    h, w, ch = processed_frame.shape
-                    bytes_per_line = ch * w
-                    qt_image = QImage(
-                        processed_frame.data, w, h, bytes_per_line, QImage.Format_RGB888
-                    ).rgbSwapped()
-                    pixmap = QPixmap.fromImage(qt_image)
-                    self.video_label.setPixmap(
-                        pixmap.scaled(
-                            self.video_label.width(),
-                            self.video_label.height(),
-                            Qt.KeepAspectRatio,
-                        )
-                    )
+                    self._render_frame_to_video_label(processed_frame)
                     return
 
             ret, frame = self.cap.read()
@@ -228,29 +266,14 @@ class RuntimeMixin:
             processed_frame = frame
             self.count_label.setText("识别到的鸟类数量: 0")
             self.fps_label.setText(f"FPS: {self.fps:.1f}")
-            h, w, ch = processed_frame.shape
-            bytes_per_line = ch * w
-            qt_image = QImage(
-                processed_frame.data, w, h, bytes_per_line, QImage.Format_RGB888
-            ).rgbSwapped()
-            pixmap = QPixmap.fromImage(qt_image)
-            self.video_label.setPixmap(
-                pixmap.scaled(
-                    self.video_label.width(),
-                    self.video_label.height(),
-                    Qt.KeepAspectRatio,
-                )
-            )
+            self._render_frame_to_video_label(processed_frame)
             return
 
         if self.cap is None:
             if self.selected_camera is None:
                 if not self.show_camera_selection_dialog():
-                    self.is_detecting = False
-                    self.start_stop_button.setText("开始检测")
-                    self.start_stop_button.setIcon(
-                        self.style().standardIcon(self.style().SP_MediaPlay)
-                    )
+                    self._set_detection_state(False, "检测已停止")
+                    self._clear_pending_inference()
                     return
             self.cap = cv2.VideoCapture(self.selected_camera)
 
@@ -261,12 +284,8 @@ class RuntimeMixin:
             # Reduce camera buffer latency.
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             if not self.cap.isOpened():
-                self.statusBar.showMessage("摄像头无法打开或不可用")
-                self.is_detecting = False
-                self.start_stop_button.setText("开始检测")
-                self.start_stop_button.setIcon(
-                    self.style().standardIcon(self.style().SP_MediaPlay)
-                )
+                self._set_detection_state(False, "摄像头无法打开或不可用")
+                self._clear_pending_inference()
                 return
 
         ret, frame = self.cap.read()
@@ -274,83 +293,94 @@ class RuntimeMixin:
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.cap.read()
             if not ret:
-                self.statusBar.showMessage("视频播放完毕或无法读取帧")
-                self.is_detecting = False
-                self.start_stop_button.setText("开始检测")
-                self.start_stop_button.setIcon(
-                    self.style().standardIcon(self.style().SP_MediaPlay)
-                )
+                self._set_detection_state(False, "视频播放完毕或无法读取帧")
+                self._clear_pending_inference()
                 return
 
-        # Run frame inference.
-        processed_frame = self.bird_detector.process_frame(frame)
+        detector = getattr(self, "bird_detector", None)
+        if detector is None:
+            self._set_detection_state(False, "模型未加载，无法执行检测")
+            self._clear_pending_inference()
+            return
 
-        # Update detection counter label.
-        self.count_label.setText(
-            f"识别到的鸟类数量: {self.bird_detector.total_objects}"
-        )
+        pending_inference = getattr(self, "pending_inference", None)
+        if pending_inference is None:
+            self.pending_inference = self.inference_executor.submit(
+                detector.process_frame, frame.copy()
+            )
+            pending_inference = self.pending_inference
 
-        # Collect data for the density chart.
-        now_dt = datetime.now()
-        current_frame_class_counts = {cls: 0 for cls in sorted(self.density_classes)}
-        if hasattr(self.bird_detector, "current_detection_info"):
-            for det_info in self.bird_detector.current_detection_info:
-                class_name = det_info["class"]
-                if class_name in self.density_classes:
-                    current_frame_class_counts[class_name] += 1
+        inference_ready = pending_inference is not None and pending_inference.done()
+        processed_frame = frame
 
-        # Write trend data at most once per second to avoid excessive I/O.
-        if hasattr(self.bird_detector, "current_detection_info"):
-            current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-            if (
-                self.bird_detector.current_detection_info
-                and current_second != getattr(self, 'last_csv_save_second', None)
-            ):
-                self.bird_detector.save_to_csv(
-                    self.bird_detector.current_detection_info
-                )
-                self.last_csv_save_second = current_second
+        if inference_ready:
+            try:
+                processed_frame = pending_inference.result()
+            except Exception as error:
+                self._set_detection_state(False, f"检测失败: {error}")
+                self._clear_pending_inference()
+                return
+            self.pending_inference = None
 
-        # Feed the real-time textual tracking log if applicable
-        if hasattr(self, 'log_text_edit'):
-            total_logged = sum(current_frame_class_counts.values())
-            if total_logged > 0:
-                log_lines = [f"🟢 监控激活 - 定位到目标 ({now_dt.strftime('%H:%M:%S')})", "=" * 32]
-                for class_name, count in current_frame_class_counts.items():
-                    if count > 0:
-                        log_lines.append(f"  ▶ {class_name}: {count} 实体")
-                log_lines.append("=" * 32)
-                log_lines.append(f"⚡ 推理速度: {self.fps:.1f} FPS")
-                self.log_text_edit.setText("\n".join(log_lines))
-            else:
-                self.log_text_edit.setText(f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标")
+            # Update detection counter label.
+            self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
 
-        total_objects_for_density = sum(current_frame_class_counts.values())
-        self.recognition_data.append((
-            now_dt,
-            total_objects_for_density,
-            current_frame_class_counts,
-        ))
-        if len(self.recognition_data) > 300:
-            self.recognition_data.pop(0)
+            # Collect data for the density chart.
+            now_dt = datetime.now()
+            current_frame_class_counts = {cls: 0 for cls in sorted(self.density_classes)}
+            if hasattr(detector, "current_detection_info"):
+                for det_info in detector.current_detection_info:
+                    class_name = det_info["class"]
+                    if class_name in self.density_classes:
+                        current_frame_class_counts[class_name] += 1
+
+            # Write trend data at most once per second to avoid excessive I/O.
+            if hasattr(detector, "current_detection_info"):
+                current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+                if (
+                    detector.current_detection_info
+                    and current_second != getattr(self, "last_csv_save_second", None)
+                ):
+                    detector.save_to_csv(detector.current_detection_info)
+                    self.last_csv_save_second = current_second
+
+            # Feed the real-time textual tracking log if applicable.
+            if hasattr(self, "log_text_edit"):
+                total_logged = sum(current_frame_class_counts.values())
+                if total_logged > 0:
+                    log_lines = [
+                        f"🟢 监控激活 - 定位到目标 ({now_dt.strftime('%H:%M:%S')})",
+                        "=" * 32,
+                    ]
+                    for class_name, count in current_frame_class_counts.items():
+                        if count > 0:
+                            log_lines.append(f"  ▶ {class_name}: {count} 实体")
+                    log_lines.append("=" * 32)
+                    log_lines.append(f"⚡ 推理速度: {self.fps:.1f} FPS")
+                    self.log_text_edit.setText("\n".join(log_lines))
+                else:
+                    self.log_text_edit.setText(
+                        f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标"
+                    )
+
+            total_objects_for_density = sum(current_frame_class_counts.values())
+            self.recognition_data.append((
+                now_dt,
+                total_objects_for_density,
+                current_frame_class_counts,
+            ))
+            if len(self.recognition_data) > 300:
+                self.recognition_data.pop(0)
+        else:
+            self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
+
+        self.fps_label.setText(f"FPS: {self.fps:.1f}")
 
         # Refresh video display.
-        h, w, ch = processed_frame.shape
-        bytes_per_line = ch * w
-        qt_image = QImage(
-            processed_frame.data, w, h, bytes_per_line, QImage.Format_RGB888
-        ).rgbSwapped()
-        pixmap = QPixmap.fromImage(qt_image)
-        self.video_label.setPixmap(
-            pixmap.scaled(
-                self.video_label.width(),
-                self.video_label.height(),
-                Qt.KeepAspectRatio,
-            )
-        )
+        self._render_frame_to_video_label(processed_frame)
 
         # Refresh chart on a throttled interval.
-        if (
+        if inference_ready and (
             self.last_chart_update.msecsTo(current_time)
             >= self.chart_update_interval_ms
         ):
@@ -509,10 +539,14 @@ class RuntimeMixin:
         )
 
         if reply == QMessageBox.Yes:
+            self._clear_pending_inference(wait=True)
+
             # Release camera resources.
             if self.cap and self.cap.isOpened():
                 self.cap.release()
             self.timer.stop()
+            if hasattr(self, "inference_executor") and self.inference_executor:
+                self.inference_executor.shutdown(wait=False, cancel_futures=True)
             cv2.destroyAllWindows()
 
             # Generate trend chart from saved CSV data when possible.
@@ -528,33 +562,43 @@ class RuntimeMixin:
 
     def load_model_and_classes(self, model_path):
         """Load a model and synchronize class selections."""
-        # Proactively release any previous model instance.
-        if hasattr(self, "bird_detector") and self.bird_detector is not None:
-            del self.bird_detector
-            gc.collect()
+        if not self._clear_pending_inference(wait=True):
+            self.statusBar.showMessage("检测任务仍在运行，请稍后再切换模型")
+            return
+        old_detector = getattr(self, "bird_detector", None)
 
         try:
-            self.model_path = resolve_model_path(model_path)
-            self.bird_detector = ObjectDetector(self.model_path)
-            self.all_classes = list(self.bird_detector.model.names.values())
+            resolved_model_path = resolve_model_path(model_path)
+            new_detector = ObjectDetector(resolved_model_path)
+            new_all_classes = list(new_detector.model.names.values())
 
             # Keep selected and density classes valid for the new model.
             if not hasattr(self, "selected_classes") or not self.selected_classes:
-                self.selected_classes = set(self.all_classes)
+                next_selected_classes = set(new_all_classes)
             else:
-                self.selected_classes = {
-                    cls for cls in self.selected_classes if cls in self.all_classes
-                } or set(self.all_classes)
+                next_selected_classes = {
+                    cls for cls in self.selected_classes if cls in new_all_classes
+                } or set(new_all_classes)
 
             if not hasattr(self, "density_classes") or not self.density_classes:
-                self.density_classes = set(self.selected_classes)
+                next_density_classes = set(next_selected_classes)
             else:
-                self.density_classes = {
-                    cls for cls in self.density_classes if cls in self.all_classes
-                } or set(self.selected_classes)
+                next_density_classes = {
+                    cls for cls in self.density_classes if cls in new_all_classes
+                } or set(next_selected_classes)
 
-            self.bird_detector.selected_classes = self.selected_classes
-            self.bird_detector.density_classes = self.density_classes
+            new_detector.selected_classes = next_selected_classes
+            new_detector.density_classes = next_density_classes
+
+            self.model_path = resolved_model_path
+            self.bird_detector = new_detector
+            self.all_classes = new_all_classes
+            self.selected_classes = next_selected_classes
+            self.density_classes = next_density_classes
+
+            if old_detector is not None and old_detector is not new_detector:
+                del old_detector
+                gc.collect()
 
             self.statusBar.showMessage(
                 f"成功加载模型: {os.path.basename(self.model_path)}"
@@ -562,10 +606,3 @@ class RuntimeMixin:
 
         except Exception as error:
             self.statusBar.showMessage(f"加载模型失败: {error}")
-
-            # Reset state when model loading fails.
-            self.model_path = None
-            self.all_classes = []
-            self.selected_classes = set()
-            self.density_classes = set()
-            self.bird_detector = None  # Clear detector object.
