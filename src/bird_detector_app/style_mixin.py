@@ -182,7 +182,7 @@ class StyleMixin:
                 font-size: 13px;
                 line-height: 1.5;
             }
-            QLabel#videoDisplay, QLabel#densityPanel {
+            QLabel#videoDisplay, QLabel#heatmapPanel {
                 background-color: #101217;
                 border: 1px solid #1E2330;
                 border-radius: 12px;

@@ -32,12 +32,12 @@ class ConfigMixin:
                 None,
             )
             selected_classes = {bird_class} if bird_class else set()
-            density_classes = set(selected_classes)
+            heatmap_classes = set(selected_classes)
 
             self.selected_classes = selected_classes
-            self.density_classes = density_classes
+            self.heatmap_classes = heatmap_classes
             detector.selected_classes = set(self.selected_classes)
-            detector.density_classes = set(self.density_classes)
+            detector.heatmap_classes = set(self.heatmap_classes)
 
             model_name = (
                 os.path.basename(self.model_path) if self.model_path else "默认模型"

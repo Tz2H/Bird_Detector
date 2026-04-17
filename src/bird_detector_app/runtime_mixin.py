@@ -3,11 +3,11 @@
 import csv
 import gc
 import os
+import threading
+from collections import deque
 from datetime import datetime
 
 import cv2
-import matplotlib
-import matplotlib.dates as mdates
 import numpy as np
 from PyQt5.QtCore import QDateTime, Qt
 from PyQt5.QtGui import QImage, QPixmap
@@ -67,28 +67,189 @@ class RuntimeMixin:
         self.pending_inference = None
         return True
 
-    def _save_density_chart_to_results(self, notify=False):
-        """Save current density chart snapshot into the results directory."""
+    def _ensure_file_pipeline_state(self):
+        """Initialize lazy runtime state for file-video inference pipeline."""
+        if not hasattr(self, "file_result_queue"):
+            self.file_result_queue = deque(maxlen=18)
+        if not hasattr(self, "file_pipeline_thread"):
+            self.file_pipeline_thread = None
+        if not hasattr(self, "file_pipeline_stop_requested"):
+            self.file_pipeline_stop_requested = False
+        if not hasattr(self, "file_pipeline_finished"):
+            self.file_pipeline_finished = False
+        if not hasattr(self, "file_pipeline_error"):
+            self.file_pipeline_error = None
+        if not hasattr(self, "file_last_output_frame"):
+            self.file_last_output_frame = None
+        if not hasattr(self, "file_playback_interval_ms"):
+            self.file_playback_interval_ms = 33
+        if not hasattr(self, "last_file_playback_time"):
+            self.last_file_playback_time = QDateTime.currentDateTime()
+
+    def _file_pipeline_worker(self):
+        """Decode and infer video-file frames in a background thread."""
+        detector = getattr(self, "bird_detector", None)
+        capture = getattr(self, "cap", None)
+
+        if detector is None or capture is None:
+            self.file_pipeline_finished = True
+            return
+
+        while not self.file_pipeline_stop_requested:
+            ret, frame = capture.read()
+            if not ret:
+                break
+
+            try:
+                if hasattr(detector, "process_frame_fast"):
+                    processed_frame = detector.process_frame_fast(frame.copy())
+                else:
+                    processed_frame = detector.process_frame(frame.copy())
+            except Exception as error:
+                self.file_pipeline_error = str(error)
+                break
+
+            detection_info = [
+                dict(item) for item in getattr(detector, "current_detection_info", [])
+            ]
+            total_objects = int(getattr(detector, "total_objects", 0))
+            self.file_result_queue.append((
+                processed_frame,
+                total_objects,
+                detection_info,
+                datetime.now(),
+            ))
+
+        self.file_pipeline_finished = True
+
+    def _start_file_pipeline(self):
+        """Start background file-video pipeline if it is not already running."""
+        self._ensure_file_pipeline_state()
+
+        # Natural EOF should not trigger implicit pipeline restart.
+        if self.file_pipeline_finished:
+            return True
+
+        if (
+            self.file_pipeline_thread is not None
+            and self.file_pipeline_thread.is_alive()
+        ):
+            return True
+
+        detector = getattr(self, "bird_detector", None)
+        capture = getattr(self, "cap", None)
+        if detector is None or capture is None or not capture.isOpened():
+            return False
+
+        self.file_result_queue.clear()
+        self.file_pipeline_stop_requested = False
+        self.file_pipeline_finished = False
+        self.file_pipeline_error = None
+        self.file_last_output_frame = None
+        self.last_file_playback_time = QDateTime.currentDateTime()
+        self.file_pipeline_thread = threading.Thread(
+            target=self._file_pipeline_worker,
+            daemon=True,
+        )
+        self.file_pipeline_thread.start()
+        return True
+
+    def _stop_file_pipeline(self, wait=False, clear_queue=True):
+        """Stop file-video pipeline thread and optionally wait for shutdown."""
+        self._ensure_file_pipeline_state()
+        self.file_pipeline_stop_requested = True
+
+        pipeline_thread = self.file_pipeline_thread
+        if wait and pipeline_thread is not None and pipeline_thread.is_alive():
+            pipeline_thread.join(timeout=2.0)
+
+        if pipeline_thread is not None and not pipeline_thread.is_alive():
+            self.file_pipeline_thread = None
+
+        if clear_queue:
+            self.file_result_queue.clear()
+            self.file_last_output_frame = None
+        self.file_pipeline_error = None
+        self.file_pipeline_finished = False
+
+    def _build_current_frame_class_counts(self, detection_info):
+        """Aggregate per-class counts for charting and logs."""
+        current_frame_class_counts = {cls: 0 for cls in sorted(self.heatmap_classes)}
+        for det_info in detection_info:
+            class_name = det_info.get("class")
+            if class_name in current_frame_class_counts:
+                current_frame_class_counts[class_name] += 1
+        return current_frame_class_counts
+
+    def _apply_detection_updates(self, detector, detection_info, now_dt):
+        """Apply shared post-inference updates to UI and runtime buffers."""
+        self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
+        current_frame_class_counts = self._build_current_frame_class_counts(
+            detection_info
+        )
+
+        # Write trend data at most once per second to avoid excessive I/O.
+        current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
+        if detection_info and current_second != getattr(
+            self, "last_csv_save_second", None
+        ):
+            detector.save_to_csv(detection_info)
+            self.last_csv_save_second = current_second
+
+        # Feed the real-time textual tracking log if applicable.
+        if hasattr(self, "log_text_edit"):
+            total_logged = sum(current_frame_class_counts.values())
+            if total_logged > 0:
+                log_lines = [
+                    f"🟢 监控激活 - 定位到目标 ({now_dt.strftime('%H:%M:%S')})",
+                    "=" * 32,
+                ]
+                for class_name, count in current_frame_class_counts.items():
+                    if count > 0:
+                        log_lines.append(f"  ▶ {class_name}: {count} 实体")
+                log_lines.append("=" * 32)
+                log_lines.append(f"⚡ 推理速度: {self.fps:.1f} FPS")
+                self.log_text_edit.setText("\n".join(log_lines))
+            else:
+                self.log_text_edit.setText(
+                    f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标"
+                )
+
+        total_objects_for_density = sum(current_frame_class_counts.values())
+        self.recognition_data.append((
+            now_dt,
+            total_objects_for_density,
+            current_frame_class_counts,
+        ))
+        if len(self.recognition_data) > 300:
+            self.recognition_data.pop(0)
+
+    def _save_heatmap_chart_to_results(self, notify=False):
+        """Save current heatmap chart snapshot into the results directory."""
         if not hasattr(self, "fig"):
             return None
 
-        if not getattr(self, "recognition_data", None):
+        detector = getattr(self, "bird_detector", None)
+        if not detector or not getattr(detector, "heatmap_points", None):
             return None
 
-        detector = getattr(self, "bird_detector", None)
         results_dir = getattr(detector, "results_dir", "results")
 
         try:
             os.makedirs(results_dir, exist_ok=True)
-            file_name = f"density_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            file_name = (
+                f"spatial_heatmap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            )
             output_path = os.path.join(results_dir, file_name)
-            self.fig.savefig(output_path, dpi=300, bbox_inches="tight")
+            self.fig.savefig(
+                output_path, dpi=300, bbox_inches="tight", facecolor="#171A21"
+            )
             if notify:
-                self.statusBar.showMessage(f"密度图已保存: {file_name}")
+                self.statusBar.showMessage(f"空间热力图已保存: {file_name}")
             return output_path
         except Exception as error:
             if notify:
-                self.statusBar.showMessage(f"保存密度图失败: {error}")
+                self.statusBar.showMessage(f"保存热力图失败: {error}")
             return None
 
     def toggle_detection(self):
@@ -101,6 +262,7 @@ class RuntimeMixin:
                 return
 
             if is_file_source:
+                self._stop_file_pipeline(wait=True, clear_queue=True)
                 self.is_video_paused = False
                 self._set_detection_state(True, "检测中，视频继续播放...")
             else:
@@ -113,6 +275,8 @@ class RuntimeMixin:
             stop_message = "检测已停止，视频已暂停"
 
         self._set_detection_state(False, stop_message)
+        if is_file_source:
+            self._stop_file_pipeline(wait=False, clear_queue=True)
         self._clear_pending_inference()
 
         detector = getattr(self, "bird_detector", None)
@@ -122,7 +286,7 @@ class RuntimeMixin:
                 detector.current_detection_info = []
             detector.total_objects = 0
         self.count_label.setText("识别到的鸟类数量: 0")
-        self._save_density_chart_to_results(notify=True)
+        self._save_heatmap_chart_to_results(notify=True)
 
     def _set_source_combo_value(self, source_text):
         """Update source selector without retriggering selection logic."""
@@ -141,6 +305,8 @@ class RuntimeMixin:
                 self._set_source_combo_value("摄像头")
             return
 
+        self._stop_file_pipeline(wait=True, clear_queue=True)
+
         if self.cap and self.cap.isOpened():
             self.cap.release()
         self.cap = None
@@ -158,6 +324,8 @@ class RuntimeMixin:
         if not file_path:
             return False
 
+        self._stop_file_pipeline(wait=True, clear_queue=True)
+
         # Release existing capture before opening a new source.
         if self.cap and self.cap.isOpened():
             self.cap.release()
@@ -173,6 +341,15 @@ class RuntimeMixin:
         self.selected_camera = None
         self.video_source_kind = "file"
         self.is_video_paused = False
+
+        self._ensure_file_pipeline_state()
+        source_fps = self.cap.get(cv2.CAP_PROP_FPS)
+        if source_fps and source_fps > 1:
+            self.file_playback_interval_ms = max(10, int(1000 / source_fps))
+        else:
+            self.file_playback_interval_ms = 33
+        self.last_file_playback_time = QDateTime.currentDateTime()
+        self.file_last_output_frame = None
 
         self._clear_pending_inference()
 
@@ -387,13 +564,80 @@ class RuntimeMixin:
                 self._clear_pending_inference()
                 return
 
+        detector = getattr(self, "bird_detector", None)
+        if detector is None:
+            self._set_detection_state(False, "模型未加载，无法执行检测")
+            self._clear_pending_inference()
+            return
+
+        is_file_source = getattr(self, "video_source_kind", "camera") == "file"
+        if is_file_source:
+            if not self._start_file_pipeline():
+                self._set_detection_state(False, "视频处理线程启动失败")
+                self._clear_pending_inference()
+                return
+
+            can_present_next_frame = (
+                self.last_file_playback_time.msecsTo(current_time)
+                >= self.file_playback_interval_ms
+            ) or len(self.file_result_queue) >= 3
+
+            if can_present_next_frame and self.file_result_queue:
+                (
+                    processed_frame,
+                    total_objects,
+                    detection_info,
+                    inferred_dt,
+                ) = self.file_result_queue.popleft()
+                self.file_last_output_frame = processed_frame
+                self.last_file_playback_time = current_time
+                detector.total_objects = total_objects
+                detector.current_detection_info = detection_info
+                self._apply_detection_updates(detector, detection_info, inferred_dt)
+
+                self.fps_label.setText(f"FPS: {self.fps:.1f}")
+                self._render_frame_to_video_label(processed_frame)
+
+                if (
+                    self.last_chart_update.msecsTo(current_time)
+                    >= self.chart_update_interval_ms
+                ):
+                    self.update_heatmap_chart()
+                    self.last_chart_update = current_time
+                return
+
+            if self.file_pipeline_error:
+                self._set_detection_state(
+                    False, f"检测失败: {self.file_pipeline_error}"
+                )
+                self._stop_file_pipeline(wait=True, clear_queue=True)
+                self._clear_pending_inference()
+                return
+
+            pipeline_thread = self.file_pipeline_thread
+            if self.file_pipeline_finished and (
+                pipeline_thread is None or not pipeline_thread.is_alive()
+            ):
+                self.is_video_paused = True
+                self._set_detection_state(False, "视频播放完毕，已暂停检测和视频")
+                self._stop_file_pipeline(wait=False, clear_queue=True)
+                self._clear_pending_inference()
+                self._save_heatmap_chart_to_results()
+                return
+
+            self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
+            self.fps_label.setText(f"FPS: {self.fps:.1f}")
+            if self.file_last_output_frame is not None:
+                self._render_frame_to_video_label(self.file_last_output_frame)
+            return
+
         ret, frame = self.cap.read()
         if not ret:
             if getattr(self, "video_source_kind", "camera") == "file":
                 self.is_video_paused = True
                 self._set_detection_state(False, "视频播放完毕，已暂停检测和视频")
                 self._clear_pending_inference()
-                self._save_density_chart_to_results()
+                self._save_heatmap_chart_to_results()
                 return
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.cap.read()
@@ -401,13 +645,7 @@ class RuntimeMixin:
                 self._set_detection_state(False, "视频播放完毕或无法读取帧")
                 self._clear_pending_inference()
                 return
-
-        detector = getattr(self, "bird_detector", None)
-        if detector is None:
-            self._set_detection_state(False, "模型未加载，无法执行检测")
-            self._clear_pending_inference()
-            return
-
+        processed_frame = frame
         pending_inference = getattr(self, "pending_inference", None)
         if pending_inference is None:
             self.pending_inference = self.inference_executor.submit(
@@ -416,7 +654,6 @@ class RuntimeMixin:
             pending_inference = self.pending_inference
 
         inference_ready = pending_inference is not None and pending_inference.done()
-        processed_frame = frame
 
         if inference_ready:
             try:
@@ -427,57 +664,14 @@ class RuntimeMixin:
                 return
             self.pending_inference = None
 
-            # Update detection counter label.
-            self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
-
-            # Collect data for the density chart.
-            now_dt = datetime.now()
-            current_frame_class_counts = {
-                cls: 0 for cls in sorted(self.density_classes)
-            }
-            if hasattr(detector, "current_detection_info"):
-                for det_info in detector.current_detection_info:
-                    class_name = det_info["class"]
-                    if class_name in self.density_classes:
-                        current_frame_class_counts[class_name] += 1
-
-            # Write trend data at most once per second to avoid excessive I/O.
-            if hasattr(detector, "current_detection_info"):
-                current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-                if detector.current_detection_info and current_second != getattr(
-                    self, "last_csv_save_second", None
-                ):
-                    detector.save_to_csv(detector.current_detection_info)
-                    self.last_csv_save_second = current_second
-
-            # Feed the real-time textual tracking log if applicable.
-            if hasattr(self, "log_text_edit"):
-                total_logged = sum(current_frame_class_counts.values())
-                if total_logged > 0:
-                    log_lines = [
-                        f"🟢 监控激活 - 定位到目标 ({now_dt.strftime('%H:%M:%S')})",
-                        "=" * 32,
-                    ]
-                    for class_name, count in current_frame_class_counts.items():
-                        if count > 0:
-                            log_lines.append(f"  ▶ {class_name}: {count} 实体")
-                    log_lines.append("=" * 32)
-                    log_lines.append(f"⚡ 推理速度: {self.fps:.1f} FPS")
-                    self.log_text_edit.setText("\n".join(log_lines))
-                else:
-                    self.log_text_edit.setText(
-                        f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标"
-                    )
-
-            total_objects_for_density = sum(current_frame_class_counts.values())
-            self.recognition_data.append((
-                now_dt,
-                total_objects_for_density,
-                current_frame_class_counts,
-            ))
-            if len(self.recognition_data) > 300:
-                self.recognition_data.pop(0)
+        if inference_ready:
+            detection_info = [
+                dict(item) for item in getattr(detector, "current_detection_info", [])
+            ]
+            self._apply_detection_updates(detector, detection_info, datetime.now())
         else:
+            if hasattr(detector, "draw_cached_tracks"):
+                processed_frame = detector.draw_cached_tracks(frame.copy())
             self.count_label.setText(f"识别到的鸟类数量: {detector.total_objects}")
 
         self.fps_label.setText(f"FPS: {self.fps:.1f}")
@@ -490,22 +684,31 @@ class RuntimeMixin:
             self.last_chart_update.msecsTo(current_time)
             >= self.chart_update_interval_ms
         ):
-            self.update_density_chart()
+            self.update_heatmap_chart()
             self.last_chart_update = current_time
 
-    def update_density_chart(self):
-        """Redraw the density chart using buffered samples."""
-        if not self.recognition_data or not getattr(self, "density_classes", None):
-            self.ax.clear()
-            self.fig.patch.set_facecolor("#171A21")
-            self.ax.set_facecolor("#171A21")
-            self.ax.spines["top"].set_visible(False)
-            self.ax.spines["right"].set_visible(False)
-            self.ax.spines["left"].set_color("#292D3E")
-            self.ax.spines["bottom"].set_color("#292D3E")
-            self.ax.tick_params(colors="#64748B")
+    def update_heatmap_chart(self):
+        """Redraw the spatial heatmap using detected object points."""
+        self.ax.clear()
+
+        # Set dark theme styling
+        self.ax.set_facecolor("#171A21")
+        self.fig.patch.set_facecolor("#171A21")
+        self.ax.spines["top"].set_visible(False)
+        self.ax.spines["right"].set_visible(False)
+        self.ax.spines["left"].set_color("#292D3E")
+        self.ax.spines["bottom"].set_color("#292D3E")
+        self.ax.tick_params(colors="#64748B")
+
+        self.ax.set_xlim(0, 640)
+        self.ax.set_ylim(640, 0)  # Real world image coordinates
+
+        detector = getattr(self, "bird_detector", None)
+        heatmap_points = getattr(detector, "heatmap_points", []) if detector else []
+
+        if not heatmap_points or not getattr(self, "heatmap_classes", None):
             self.ax.set_title(
-                "数量密度分布（暂无数据）",
+                "空间热力分布（暂无数据）",
                 fontsize=15,
                 fontweight="600",
                 color="#F8FAFC",
@@ -514,100 +717,39 @@ class RuntimeMixin:
             self.canvas.draw()
             return
 
-        # Build per-class time series.
-        from collections import defaultdict
+        xs = []
+        ys = []
+        for point in heatmap_points:
+            if point["class"] in self.heatmap_classes:
+                xs.append(point["x"])
+                ys.append(point["y"])
 
-        class_time_count = defaultdict(list)
-        timestamps = [item[0] for item in self.recognition_data]
-        plot_classes = sorted(self.density_classes)
-
-        # Append values for each class at each timestamp.
-        for _, _, frame_classes in self.recognition_data:
-            for cls in plot_classes:
-                class_time_count[cls].append(frame_classes.get(cls, 0))
-
-        self.ax.clear()
-
-        # Handle colormap retrieval for newer Matplotlib versions.
-        if hasattr(matplotlib, "colormaps"):
-            # Only allocate colors for classes with non-zero history.
-            valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
-            if not valid_classes:
-                self.ax.set_title("数量密度分布（暂无数据）")
-                self.canvas.draw()
-                return
-            color_map = matplotlib.colormaps.get_cmap("tab10").resampled(
-                max(1, len(valid_classes))
+        if not xs:
+            self.ax.set_title(
+                "空间热力分布（暂无数据）",
+                fontsize=15,
+                fontweight="600",
+                color="#F8FAFC",
+                pad=12,
             )
-            for i, cls in enumerate(valid_classes):
-                y = class_time_count[cls]
-                color = color_map(i)
-                self.ax.plot(
-                    timestamps,
-                    y,
-                    label=cls,
-                    linewidth=2.5,
-                    marker="o",
-                    markersize=7,
-                    color=color,
-                )
-        else:
-            import matplotlib.cm as cm
+            self.canvas.draw()
+            return
 
-            # Only allocate colors for classes with non-zero history.
-            valid_classes = [cls for cls in plot_classes if any(class_time_count[cls])]
-            if not valid_classes:
-                self.ax.set_title("数量密度分布（暂无数据）")
-                self.canvas.draw()
-                return
-            color_map = cm.get_cmap("tab10", max(1, len(valid_classes)))
-            for i, cls in enumerate(valid_classes):
-                y = class_time_count[cls]
-                color = (
-                    color_map(i)
-                    if hasattr(color_map, "__call__")
-                    else color_map.colors[i]
-                )
-                self.ax.plot(
-                    timestamps,
-                    y,
-                    label=cls,
-                    linewidth=2.5,
-                    marker="o",
-                    markersize=7,
-                    color=color,
-                )
+        self.ax.hexbin(
+            xs,
+            ys,
+            gridsize=30,
+            cmap="magma",
+            mincnt=1,
+            edgecolors="none",
+        )
 
-        self.ax.set_xlabel("时间", fontsize=12, color="#94A3B8")
-        self.ax.set_ylabel("数量", fontsize=12, color="#94A3B8")
+        self.ax.set_xlabel("X 坐标", fontsize=12, color="#94A3B8")
+        self.ax.set_ylabel("Y 坐标", fontsize=12, color="#94A3B8")
         self.ax.set_title(
-            "数量密度分布", fontsize=15, fontweight="600", color="#F8FAFC", pad=12
+            "空间热力分布", fontsize=15, fontweight="600", color="#F8FAFC", pad=12
         )
         self.ax.grid(True, linestyle=":", alpha=0.15, color="#F8FAFC")
-
-        # Modernize dark style
-        self.fig.patch.set_facecolor("#171A21")  # Match MacStyleFrame color
-        self.ax.set_facecolor("#171A21")
-        self.ax.spines["top"].set_visible(False)
-        self.ax.spines["right"].set_visible(False)
-        self.ax.spines["left"].set_color("#292D3E")
-        self.ax.spines["bottom"].set_color("#292D3E")
-        self.ax.tick_params(colors="#64748B")
-
-        locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
-        formatter = mdates.ConciseDateFormatter(locator)
-        self.ax.xaxis.set_major_locator(locator)
-        self.ax.xaxis.set_major_formatter(formatter)
-        self.fig.autofmt_xdate(rotation=30)
-
-        legend = self.ax.legend(
-            fontsize=12, loc="upper left", frameon=True, fancybox=True, shadow=True
-        )
-        if legend:
-            legend.get_frame().set_facecolor("#1E2330")
-            legend.get_frame().set_edgecolor("#292D3E")
-            for text in legend.get_texts():
-                text.set_color("#CBD5E1")
 
         self.fig.tight_layout()
         self.canvas.draw()
@@ -644,8 +786,9 @@ class RuntimeMixin:
 
     def closeEvent(self, event):
         """Handle graceful shutdown and optional trend plotting."""
+        self._stop_file_pipeline(wait=True, clear_queue=True)
         self._clear_pending_inference(wait=True)
-        self._save_density_chart_to_results()
+        self._save_heatmap_chart_to_results()
 
         # Release camera resources.
         if self.cap and self.cap.isOpened():
@@ -655,17 +798,9 @@ class RuntimeMixin:
             self.inference_executor.shutdown(wait=False, cancel_futures=True)
         cv2.destroyAllWindows()
 
-        # Generate trend chart from saved CSV data when possible.
-        try:
-            # Use the detector helper to generate the trend chart.
-            if hasattr(self, "bird_detector") and self.bird_detector:
-                self.bird_detector.plot_trends()
-        except Exception as error:
-            print(f"生成趋势图时出错: {error}")
-        event.accept()
-
     def load_model_and_classes(self, model_path):
         """Load a model and synchronize class selections."""
+        self._stop_file_pipeline(wait=True, clear_queue=True)
         if not self._clear_pending_inference(wait=True):
             self.statusBar.showMessage("检测任务仍在运行，请稍后再切换模型")
             return
@@ -682,16 +817,16 @@ class RuntimeMixin:
                 None,
             )
             next_selected_classes = {bird_class} if bird_class else set()
-            next_density_classes = set(next_selected_classes)
+            next_heatmap_classes = set(next_selected_classes)
 
             new_detector.selected_classes = next_selected_classes
-            new_detector.density_classes = next_density_classes
+            new_detector.heatmap_classes = next_heatmap_classes
 
             self.model_path = resolved_model_path
             self.bird_detector = new_detector
             self.all_classes = new_all_classes
             self.selected_classes = next_selected_classes
-            self.density_classes = next_density_classes
+            self.heatmap_classes = next_heatmap_classes
 
             if old_detector is not None and old_detector is not new_detector:
                 del old_detector

@@ -1,5 +1,5 @@
 """
-Dialog components for density configuration.
+Dialog components for heatmap configuration.
 
 Author: Tz2H
 """
@@ -16,13 +16,13 @@ from PyQt5.QtWidgets import (
 )
 
 
-class DensityDialog(QDialog):
-    """Dialog for configuring classes shown in density charts."""
+class HeatmapDialog(QDialog):
+    """Dialog for configuring classes shown in heatmap."""
 
     def __init__(self, parent=None, available_classes=None, selected_classes=None):
-        """Initialize the density configuration dialog."""
+        """Initialize the heatmap configuration dialog."""
         super().__init__(parent)
-        self.setWindowTitle("密度图设置")
+        self.setWindowTitle("热力图设置")
         self.resize(400, 600)
         self.available_classes = list(available_classes or [])
         self.selected_classes = set(selected_classes or self.available_classes)
@@ -36,7 +36,7 @@ class DensityDialog(QDialog):
         self.scroll.setWidgetResizable(True)
         self.class_widget = QWidget()
         self.class_layout = QVBoxLayout(self.class_widget)
-        self.density_checkboxes = []
+        self.heatmap_checkboxes = []
         self.refresh_class_checkboxes()
         self.scroll.setWidget(self.class_widget)
         layout.addWidget(QLabel("请选择需要显示的类别："))
@@ -54,27 +54,27 @@ class DensityDialog(QDialog):
         layout.addLayout(btn_layout)
 
     def refresh_class_checkboxes(self):
-        """Rebuild density class checkboxes."""
+        """Rebuild heatmap class checkboxes."""
         # Clear existing checkbox widgets.
-        for cb in self.density_checkboxes:
+        for cb in self.heatmap_checkboxes:
             self.class_layout.removeWidget(cb)
             cb.deleteLater()
-        self.density_checkboxes = []
+        self.heatmap_checkboxes = []
         # Build new checkbox widgets.
         for cls in self.available_classes:
             cb = QCheckBox(cls)
             cb.setChecked(cls in self.selected_classes)
-            cb.stateChanged.connect(self.update_density_classes)
+            cb.stateChanged.connect(self.update_heatmap_classes)
             self.class_layout.addWidget(cb)
-            self.density_checkboxes.append(cb)
+            self.heatmap_checkboxes.append(cb)
 
-    def update_density_classes(self):
-        """Update density classes from checkbox state."""
+    def update_heatmap_classes(self):
+        """Update heatmap classes from checkbox state."""
         self.selected_classes = set()
-        for cb in self.density_checkboxes:
+        for cb in self.heatmap_checkboxes:
             if cb.isChecked():
                 self.selected_classes.add(cb.text())
 
     def get_result(self):
-        """Return selected density classes."""
+        """Return selected heatmap classes."""
         return self.selected_classes

@@ -107,12 +107,12 @@ class MainWindowUI:
         right_layout.setSpacing(20)
         right_layout.setContentsMargins(20, 20, 20, 20)
 
-        self.density_chart_placeholder = QLabel("数量密度分布图")
-        self.density_chart_placeholder.setMinimumSize(400, 300)
-        self.density_chart_placeholder.setMaximumHeight(380)
-        self.density_chart_placeholder.setAlignment(Qt.AlignCenter)
-        self.density_chart_placeholder.setObjectName("densityPanel")
-        right_layout.addWidget(self.density_chart_placeholder)
+        self.heatmap_chart_placeholder = QLabel("空间热力分布图")
+        self.heatmap_chart_placeholder.setMinimumSize(400, 300)
+        self.heatmap_chart_placeholder.setMaximumHeight(380)
+        self.heatmap_chart_placeholder.setAlignment(Qt.AlignCenter)
+        self.heatmap_chart_placeholder.setObjectName("heatmapPanel")
+        right_layout.addWidget(self.heatmap_chart_placeholder)
 
         log_frame = MacStyleFrame()
         log_layout = QVBoxLayout(log_frame)
@@ -172,7 +172,7 @@ class MainWindowUI:
             pad=12,
         )
 
-        new_layout = QVBoxLayout(self.density_chart_placeholder)
+        new_layout = QVBoxLayout(self.heatmap_chart_placeholder)
         new_layout.addWidget(self.canvas)
         new_layout.setContentsMargins(0, 0, 0, 0)
         new_layout.setSpacing(0)

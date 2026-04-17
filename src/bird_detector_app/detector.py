@@ -5,13 +5,11 @@ Author: Tz2H
 """
 
 import csv
-import glob
 import os
 from datetime import datetime
 
 import cv2
 import matplotlib.pyplot as plt
-import pandas as pd
 from ultralytics import YOLO
 
 from utils.config_manager import resolve_model_path
@@ -34,12 +32,20 @@ class ObjectDetector:
         ]
         plt.rcParams["axes.unicode_minus"] = False
         self.model = YOLO(resolve_model_path(model_path))
-        # High-precision profile: slower but more conservative and stable.
-        self.inference_conf = 0.65
-        self.inference_iou = 0.40
+        # High-accuracy profile for per-frame video analysis.
+        self.inference_conf = 0.35
+        self.inference_iou = 0.45
         self.inference_imgsz = 1536
+        self.inference_max_det = 300
         self.inference_augment = True
+        self.inference_rescue_conf = 0.20
         self.inference_half = False
+        # Fast profile for video playback output stream.
+        self.fast_inference_conf = 0.40
+        self.fast_inference_iou = 0.50
+        self.fast_inference_imgsz = 960
+        self.fast_inference_max_det = 120
+        self.fast_inference_augment = False
         self.colors = {
             "box": (0, 255, 0),
             "text_bg": (44, 44, 44),
@@ -56,7 +62,10 @@ class ObjectDetector:
         self.total_objects = 0
         self.class_counts = {}
         self.selected_classes = set()
-        self.density_classes = set()
+        self.heatmap_classes = set()
+        self.heatmap_points = []
+        self.max_heatmap_points = 20000
+        self.current_detection_info = []
         # Counting-related runtime attributes.
         self.threshold = 20  # Tune this threshold as needed.
         self.max_count = 0
@@ -85,41 +94,61 @@ class ObjectDetector:
                 self.class_counts[obj_class] = 0
             self.class_counts[obj_class] += 1
 
-    def plot_trends(self):
-        """Plot and save a trend chart from the latest CSV file."""
-        csv_files = glob.glob(os.path.join(self.results_dir, "object_detection_*.csv"))
-        if not csv_files:
-            print("No detection result files were found.")
+    def plot_heatmap(self):
+        """Plot and save a spatial heatmap of object detections."""
+        if not self.heatmap_points:
+            print("No heatmap data available.")
             return
-        latest_csv = max(csv_files, key=os.path.getctime)
-        print(f"Processing file: {latest_csv}")
-        df = pd.read_csv(latest_csv)
-        df["时间戳"] = pd.to_datetime(df["时间戳"])
-        plt.figure(figsize=(15, 8))
-        # Plot per-class totals over time.
-        for obj_class, group in df.groupby("类别"):
-            if obj_class in self.selected_classes:
-                plt.plot(
-                    group["时间戳"],
-                    group["总数量"],
-                    marker="o",
-                    linestyle="-",
-                    label=obj_class,
-                )
-        plt.title("目标检测数量趋势图", fontsize=16, fontweight="bold")
-        plt.xlabel("时间", fontsize=12)
-        plt.ylabel("目标数量", fontsize=12)
-        plt.grid(True, linestyle="--", alpha=0.7)
-        plt.xticks(rotation=45)
+
+        # Extract data for selected classes
+        xs = []
+        ys = []
+        for point in self.heatmap_points:
+            if point["class"] in self.heatmap_classes:
+                xs.append(point["x"])
+                ys.append(point["y"])
+
+        if not xs:
+            print("No valid points to plot for selected classes.")
+            return
+
+        plt.figure(figsize=(8, 8), facecolor="#171A21")
+        ax = plt.gca()
+        ax.set_facecolor("#171A21")
+
+        # Set axes limit to typical frame dimension 640x640 context
+        ax.set_xlim(0, 640)
+        ax.set_ylim(640, 0)  # Invert Y-axis for correct spatial mapping
+
+        hb = ax.hexbin(xs, ys, gridsize=40, cmap="magma", mincnt=1, edgecolors="none")
+
+        # Style improvements
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.spines["bottom"].set_color("#292D3E")
+        ax.spines["left"].set_color("#292D3E")
+        ax.tick_params(colors="#64748B")
+
+        plt.title(
+            "空间热力分布", fontsize=16, fontweight="bold", color="#F8FAFC", pad=12
+        )
+        plt.xlabel("X 坐标", fontsize=12, color="#94A3B8")
+        plt.ylabel("Y 坐标", fontsize=12, color="#94A3B8")
+
+        cb = plt.colorbar(hb, ax=ax)
+        cb.set_label("出现频次", color="#94A3B8", fontsize=12)
+        cb.ax.yaxis.set_tick_params(color="#94A3B8")
+        cb.outline.set_edgecolor("#292D3E")
+        plt.setp(plt.getp(cb.ax.axes, "yticklabels"), color="#64748B")
+
         plt.tight_layout()
-        plt.legend(fontsize=12)
         output_file = os.path.join(
             self.results_dir,
-            f"object_trend_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+            f"heatmap_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
         )
-        plt.savefig(output_file, dpi=300, bbox_inches="tight")
-        print(f"Trend chart saved to: {output_file}")
-        plt.show()
+        plt.savefig(output_file, dpi=300, bbox_inches="tight", facecolor="#171A21")
+        print(f"Heatmap chart saved to: {output_file}")
+        plt.close()
 
     def draw_counting_bar(self, frame, current_count):
         """Draw the current count progress bar."""
@@ -288,35 +317,48 @@ class ObjectDetector:
             return ("CRITICAL", (0, 0, 255))
 
     def draw_detection(self, frame, detections):
-        """Draw bounding boxes and labels for valid detections."""
+        """Draw detection boxes and labels for filtered detections."""
         detection_info = []
         class_counter = {}
+
         for detection in detections:
             x1, y1, x2, y2 = map(int, detection[:4])
-            cls = int(detection[5])
-            class_name = self.model.names[cls]
+            confidence = float(detection[4])
+            class_id = int(detection[5])
+            class_name = self.model.names[class_id]
             if class_name not in self.selected_classes:
                 continue
+
+            cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            self.heatmap_points.append({"class": class_name, "x": cx, "y": cy})
+            if len(self.heatmap_points) > self.max_heatmap_points:
+                overflow = len(self.heatmap_points) - self.max_heatmap_points
+                del self.heatmap_points[:overflow]
+
             class_counter[class_name] = class_counter.get(class_name, 0) + 1
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            label_text = f"{class_name} {confidence:.2f}"
             # Render the class name on each bounding box.
             cv2.putText(
                 frame,
-                class_name,
+                label_text,
                 (x1, y1 - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (0, 255, 0),
                 2,
             )
+
         if class_counter:
             label = " ".join([f"{k}={v}" for k, v in class_counter.items()])
             cv2.putText(
                 frame, label, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
             )
+
         for cname, count in class_counter.items():
             for _ in range(count):
                 detection_info.append({"class": cname})
+
         self.current_detection_info = detection_info
         self.total_objects = sum(class_counter.values())
 
@@ -331,6 +373,63 @@ class ObjectDetector:
             if class_name in self.selected_classes
         ]
 
+    def _predict_with_profile(
+        self,
+        frame,
+        selected_class_ids,
+        conf,
+        iou,
+        imgsz,
+        max_det,
+        augment,
+        rescue_conf=None,
+    ):
+        """Run YOLO predict using the provided profile and optional fallback pass."""
+        results = self.model.predict(
+            frame,
+            conf=conf,
+            iou=iou,
+            imgsz=imgsz,
+            max_det=max_det,
+            augment=augment,
+            half=self.inference_half,
+            classes=selected_class_ids,
+            verbose=False,
+        )
+
+        has_detection = (
+            len(results) > 0
+            and results[0].boxes is not None
+            and len(results[0].boxes) > 0
+        )
+
+        if not has_detection and rescue_conf is not None and rescue_conf < conf:
+            results = self.model.predict(
+                frame,
+                conf=rescue_conf,
+                iou=iou,
+                imgsz=imgsz,
+                max_det=max_det,
+                augment=augment,
+                half=self.inference_half,
+                classes=selected_class_ids,
+                verbose=False,
+            )
+            has_detection = (
+                len(results) > 0
+                and results[0].boxes is not None
+                and len(results[0].boxes) > 0
+            )
+
+        if has_detection:
+            detections = results[0].boxes.data.cpu().numpy()
+            self.draw_detection(frame, detections)
+        else:
+            self.current_detection_info = []
+            self.total_objects = 0
+
+        return frame
+
     def process_frame(self, frame):
         """Run model inference on a frame and draw detections."""
         selected_class_ids = self._resolve_selected_class_ids()
@@ -340,20 +439,33 @@ class ObjectDetector:
             self.total_objects = 0
             return frame
 
-        results = self.model.predict(
+        return self._predict_with_profile(
             frame,
+            selected_class_ids,
             conf=self.inference_conf,
             iou=self.inference_iou,
             imgsz=self.inference_imgsz,
+            max_det=self.inference_max_det,
             augment=self.inference_augment,
-            half=self.inference_half,
-            classes=selected_class_ids,
-            verbose=False,
+            rescue_conf=self.inference_rescue_conf,
         )
-        if len(results) > 0:
-            detections = results[0].boxes.data.cpu().numpy()
-            self.draw_detection(frame, detections)
-        else:
+
+    def process_frame_fast(self, frame):
+        """Run low-latency inference profile for video playback stream."""
+        selected_class_ids = self._resolve_selected_class_ids()
+
+        if self.selected_classes and not selected_class_ids:
             self.current_detection_info = []
             self.total_objects = 0
-        return frame
+            return frame
+
+        return self._predict_with_profile(
+            frame,
+            selected_class_ids,
+            conf=self.fast_inference_conf,
+            iou=self.fast_inference_iou,
+            imgsz=self.fast_inference_imgsz,
+            max_det=self.fast_inference_max_det,
+            augment=self.fast_inference_augment,
+            rescue_conf=None,
+        )

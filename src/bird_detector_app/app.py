@@ -34,7 +34,7 @@ class YoloVisualizationApp(
         # Initialize runtime state.
         self.all_classes = []
         self.selected_classes = set()
-        self.density_classes = set()
+        self.heatmap_classes = set()
         self.model_path = None
         self.is_detecting = False
         self.frame_count = 0
@@ -92,7 +92,7 @@ class YoloVisualizationApp(
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(16)  # Target ~60 FPS UI refresh without busy polling.
 
-        # Buffer detection samples for the density chart.
+        # Buffer detection samples for the spatial heatmap.
         self.recognition_data = []  # [(timestamp, total_count, {class_name: count}), ...]
 
         # Initialize system tray icon.

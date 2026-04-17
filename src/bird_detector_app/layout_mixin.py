@@ -107,13 +107,13 @@ class LayoutMixin:
         right_layout.setSpacing(20)
         right_layout.setContentsMargins(20, 20, 20, 20)
 
-        # Density chart container
-        self.density_chart_placeholder = QLabel("数量密度分布图")
-        self.density_chart_placeholder.setMinimumSize(400, 300)
-        self.density_chart_placeholder.setMaximumHeight(380)
-        self.density_chart_placeholder.setAlignment(Qt.AlignCenter)
-        self.density_chart_placeholder.setObjectName("densityPanel")
-        right_layout.addWidget(self.density_chart_placeholder)
+        # Heatmap chart container
+        self.heatmap_chart_placeholder = QLabel("空间热力分布图")
+        self.heatmap_chart_placeholder.setMinimumSize(400, 300)
+        self.heatmap_chart_placeholder.setMaximumHeight(380)
+        self.heatmap_chart_placeholder.setAlignment(Qt.AlignCenter)
+        self.heatmap_chart_placeholder.setObjectName("heatmapPanel")
+        right_layout.addWidget(self.heatmap_chart_placeholder)
 
         # Real-time event log
         log_frame = MacStyleFrame()
@@ -180,7 +180,7 @@ class LayoutMixin:
         self.ax.spines["bottom"].set_color("#292D3E")
         self.ax.tick_params(colors="#64748B")
         self.ax.set_title(
-            "数量密度分布（暂无数据）",
+            "空间热力分布（暂无数据）",
             fontsize=15,
             fontweight="600",
             color="#F8FAFC",
@@ -188,7 +188,7 @@ class LayoutMixin:
         )
 
         # Remove any previous placeholder layout.
-        old_layout = self.density_chart_placeholder.layout()
+        old_layout = self.heatmap_chart_placeholder.layout()
         if old_layout:
             while old_layout.count():
                 item = old_layout.takeAt(0)
@@ -197,7 +197,7 @@ class LayoutMixin:
                     widget.deleteLater()
             old_layout.deleteLater()
 
-        new_layout = QVBoxLayout(self.density_chart_placeholder)
+        new_layout = QVBoxLayout(self.heatmap_chart_placeholder)
         new_layout.addWidget(self.canvas)
         new_layout.setContentsMargins(0, 0, 0, 0)
         new_layout.setSpacing(0)

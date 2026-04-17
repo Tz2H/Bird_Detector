@@ -44,7 +44,7 @@ def load_initial_config():
     config = {
         "model_path": str(DEFAULT_MODEL_PATH),
         "selected_classes": set(),
-        "density_classes": set(),
+        "heatmap_classes": set(),
     }
 
     # Read user overrides from config.txt.
@@ -61,26 +61,26 @@ def load_initial_config():
                             config["selected_classes"] = {
                                 cls for cls in classes_str.split(",") if cls
                             }
-                            # Default density classes to selected classes.
-                            config["density_classes"] = set(config["selected_classes"])
-                    elif line.startswith("density="):
-                        density_str = line.split("=", 1)[1].strip()
-                        if density_str:
-                            config["density_classes"] = {
-                                cls for cls in density_str.split(",") if cls
+                            # Default heatmap classes to selected classes.
+                            config["heatmap_classes"] = set(config["selected_classes"])
+                    elif line.startswith("heatmap="):
+                        heatmap_str = line.split("=", 1)[1].strip()
+                        if heatmap_str:
+                            config["heatmap_classes"] = {
+                                cls for cls in heatmap_str.split(",") if cls
                             }
         except Exception as e:
             print(f"Failed to read config.txt: {e}")
 
-    if config["selected_classes"] and not config["density_classes"]:
-        config["density_classes"] = set(config["selected_classes"])
+    if config["selected_classes"] and not config["heatmap_classes"]:
+        config["heatmap_classes"] = set(config["selected_classes"])
 
     config["model_path"] = resolve_model_path(config["model_path"])
 
     return config
 
 
-def save_config(model_path, selected_classes, density_classes=None):
+def save_config(model_path, selected_classes, heatmap_classes=None):
     """Persist model and class settings to config.txt."""
     try:
         model_path_value = resolve_model_path(model_path)
@@ -91,12 +91,12 @@ def save_config(model_path, selected_classes, density_classes=None):
             pass
 
         sorted_selected = sorted(selected_classes) if selected_classes else []
-        sorted_density = sorted(density_classes) if density_classes else []
+        sorted_heatmap = sorted(heatmap_classes) if heatmap_classes else []
 
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             f.write(f"model={model_path_value}\n")
             f.write("classes=" + ",".join(sorted_selected) + "\n")
-            f.write("density=" + ",".join(sorted_density) + "\n")
+            f.write("heatmap=" + ",".join(sorted_heatmap) + "\n")
         return True
     except Exception as e:
         print(f"Failed to save config.txt: {e}")
