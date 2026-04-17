@@ -87,28 +87,59 @@ class RuntimeMixin:
             detector.total_objects = 0
         self.count_label.setText("识别到的鸟类数量: 0")
 
-    def open_video(self):
+    def _set_source_combo_value(self, source_text):
+        """Update source selector without retriggering selection logic."""
+        source_combo = getattr(self, "source_combo", None)
+        if source_combo is None:
+            return
+
+        previous_state = source_combo.blockSignals(True)
+        source_combo.setCurrentText(source_text)
+        source_combo.blockSignals(previous_state)
+
+    def on_source_changed(self, source_text):
+        """Handle source selector changes between camera and file."""
+        if source_text == "视频文件":
+            if not self.open_video(sync_source_combo=False):
+                self._set_source_combo_value("摄像头")
+            return
+
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.cap = None
+
+        self._set_detection_state(False, "已切换到摄像头输入")
+        self._clear_pending_inference()
+
+    def open_video(self, *_args, sync_source_combo=True):
         """Open and use a local video file as input."""
         file_path, _ = QFileDialog.getOpenFileName(
             self, "打开视频文件", "", "视频文件 (*.mp4 *.avi *.mkv)"
         )
-        if file_path:
-            # Release existing capture before opening a new source.
-            if self.cap and self.cap.isOpened():
-                self.cap.release()
+        if not file_path:
+            return False
 
-            self.cap = cv2.VideoCapture(file_path)
-            if not self.cap.isOpened():
-                self.statusBar.showMessage(
-                    f"无法打开视频文件: {os.path.basename(file_path)}"
-                )
-                self.cap = None
-            else:
-                # Pause detection after loading a new video.
-                self._set_detection_state(
-                    False, f"已打开视频: {os.path.basename(file_path)}"
-                )
-                self._clear_pending_inference()
+        # Release existing capture before opening a new source.
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+
+        self.cap = cv2.VideoCapture(file_path)
+        if not self.cap.isOpened():
+            self.statusBar.showMessage(
+                f"无法打开视频文件: {os.path.basename(file_path)}"
+            )
+            self.cap = None
+            return False
+
+        self.selected_camera = None
+
+        # Pause detection after loading a new video.
+        self._set_detection_state(False, f"已打开视频: {os.path.basename(file_path)}")
+        self._clear_pending_inference()
+
+        if sync_source_combo:
+            self._set_source_combo_value("视频文件")
+        return True
 
     def toggle_fullscreen(self):
         """Toggle fullscreen mode."""
@@ -327,7 +358,9 @@ class RuntimeMixin:
 
             # Collect data for the density chart.
             now_dt = datetime.now()
-            current_frame_class_counts = {cls: 0 for cls in sorted(self.density_classes)}
+            current_frame_class_counts = {
+                cls: 0 for cls in sorted(self.density_classes)
+            }
             if hasattr(detector, "current_detection_info"):
                 for det_info in detector.current_detection_info:
                     class_name = det_info["class"]
@@ -337,9 +370,8 @@ class RuntimeMixin:
             # Write trend data at most once per second to avoid excessive I/O.
             if hasattr(detector, "current_detection_info"):
                 current_second = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-                if (
-                    detector.current_detection_info
-                    and current_second != getattr(self, "last_csv_save_second", None)
+                if detector.current_detection_info and current_second != getattr(
+                    self, "last_csv_save_second", None
                 ):
                     detector.save_to_csv(detector.current_detection_info)
                     self.last_csv_save_second = current_second
@@ -393,12 +425,18 @@ class RuntimeMixin:
             self.ax.clear()
             self.fig.patch.set_facecolor("#171A21")
             self.ax.set_facecolor("#171A21")
-            self.ax.spines['top'].set_visible(False)
-            self.ax.spines['right'].set_visible(False)
-            self.ax.spines['left'].set_color("#292D3E")
-            self.ax.spines['bottom'].set_color("#292D3E")
+            self.ax.spines["top"].set_visible(False)
+            self.ax.spines["right"].set_visible(False)
+            self.ax.spines["left"].set_color("#292D3E")
+            self.ax.spines["bottom"].set_color("#292D3E")
             self.ax.tick_params(colors="#64748B")
-            self.ax.set_title("数量密度分布（暂无数据）", fontsize=15, fontweight="600", color="#F8FAFC", pad=12)
+            self.ax.set_title(
+                "数量密度分布（暂无数据）",
+                fontsize=15,
+                fontweight="600",
+                color="#F8FAFC",
+                pad=12,
+            )
             self.canvas.draw()
             return
 
@@ -468,16 +506,18 @@ class RuntimeMixin:
 
         self.ax.set_xlabel("时间", fontsize=12, color="#94A3B8")
         self.ax.set_ylabel("数量", fontsize=12, color="#94A3B8")
-        self.ax.set_title("数量密度分布", fontsize=15, fontweight="600", color="#F8FAFC", pad=12)
+        self.ax.set_title(
+            "数量密度分布", fontsize=15, fontweight="600", color="#F8FAFC", pad=12
+        )
         self.ax.grid(True, linestyle=":", alpha=0.15, color="#F8FAFC")
-        
+
         # Modernize dark style
         self.fig.patch.set_facecolor("#171A21")  # Match MacStyleFrame color
         self.ax.set_facecolor("#171A21")
-        self.ax.spines['top'].set_visible(False)
-        self.ax.spines['right'].set_visible(False)
-        self.ax.spines['left'].set_color("#292D3E")
-        self.ax.spines['bottom'].set_color("#292D3E")
+        self.ax.spines["top"].set_visible(False)
+        self.ax.spines["right"].set_visible(False)
+        self.ax.spines["left"].set_color("#292D3E")
+        self.ax.spines["bottom"].set_color("#292D3E")
         self.ax.tick_params(colors="#64748B")
 
         locator = mdates.AutoDateLocator(minticks=3, maxticks=8)
