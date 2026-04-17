@@ -101,10 +101,7 @@ class RuntimeMixin:
                 break
 
             try:
-                if hasattr(detector, "process_frame_fast"):
-                    processed_frame = detector.process_frame_fast(frame.copy())
-                else:
-                    processed_frame = detector.process_frame(frame.copy())
+                processed_frame = detector.process_frame_fast(frame.copy())
             except Exception as error:
                 self.file_pipeline_error = str(error)
                 break
@@ -215,10 +212,10 @@ class RuntimeMixin:
                     f"⚪ 静态观测中 ({now_dt.strftime('%H:%M:%S')})...\n\n目前未检测到活动目标"
                 )
 
-        total_objects_for_density = sum(current_frame_class_counts.values())
+        total_objects_for_heatmap = sum(current_frame_class_counts.values())
         self.recognition_data.append((
             now_dt,
-            total_objects_for_density,
+            total_objects_for_heatmap,
             current_frame_class_counts,
         ))
         if len(self.recognition_data) > 300:
@@ -811,7 +808,7 @@ class RuntimeMixin:
             new_detector = ObjectDetector(resolved_model_path)
             new_all_classes = list(new_detector.model.names.values())
 
-            # Keep only bird for detection and density chart.
+            # Keep only bird for detection and heatmap chart.
             bird_class = next(
                 (cls for cls in new_all_classes if str(cls).lower() == "bird"),
                 None,

@@ -6,11 +6,12 @@ Author: Tz2H
 import os
 from pathlib import Path
 
-
-SRC_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = SRC_ROOT.parent
-DEFAULT_MODEL_PATH = SRC_ROOT / "resources" / "models" / "yolo11m.pt"
-CONFIG_FILE = PROJECT_ROOT / "config.txt"
+from bird_detector_app.paths import (
+    CONFIG_FILE,
+    DEFAULT_MODEL_PATH,
+    PROJECT_ROOT,
+    SRC_ROOT,
+)
 
 
 def resolve_model_path(model_path):
