@@ -28,12 +28,6 @@ class LayoutMixin:
         top_buttons_layout.setSpacing(16)
         top_buttons_layout.setContentsMargins(0, 0, 0, 8)
 
-        # Settings button
-        self.settings_btn = MacStyleButton("设置")
-        self.settings_btn.setFixedWidth(100)
-        self.settings_btn.clicked.connect(self.show_settings_dialog)
-        top_buttons_layout.addWidget(self.settings_btn, alignment=Qt.AlignLeft)
-
         top_buttons_layout.addStretch()
 
         # CSV export button

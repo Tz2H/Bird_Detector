@@ -1,6 +1,7 @@
 """Layout-building class for the main window."""
 
 import matplotlib
+
 matplotlib.use("Qt5Agg", force=True)
 
 import matplotlib.pyplot as plt
@@ -18,18 +19,19 @@ from PyQt5.QtWidgets import (
 
 from ui.components import MacStyleButton, MacStyleFrame
 
+
 class MainWindowUI:
     """Class to construct and hold all UI widgets for the main window."""
-    
+
     def __init__(self, main_window):
         self.main_window = main_window
         self.central_widget = QWidget()
         main_window.setCentralWidget(self.central_widget)
-        
+
         self.main_layout = QVBoxLayout(self.central_widget)
         self.main_layout.setSpacing(18)
         self.main_layout.setContentsMargins(24, 24, 24, 24)
-        
+
         self.setup_top_buttons()
         self.setup_content_panels()
 
@@ -38,10 +40,6 @@ class MainWindowUI:
         top_buttons_layout = QHBoxLayout()
         top_buttons_layout.setSpacing(16)
         top_buttons_layout.setContentsMargins(0, 0, 0, 8)
-
-        self.settings_btn = MacStyleButton("设置")
-        self.settings_btn.setFixedWidth(100)
-        top_buttons_layout.addWidget(self.settings_btn, alignment=Qt.AlignLeft)
 
         top_buttons_layout.addStretch()
 
@@ -148,9 +146,9 @@ class MainWindowUI:
 
         right_layout.addWidget(control_frame)
         content_layout.addWidget(right_frame, 1)
-        
+
         self.main_layout.addLayout(content_layout, 1)
-        
+
         # Init specific embedded plots
         self.init_matplotlib_canvas()
 

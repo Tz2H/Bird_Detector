@@ -67,16 +67,52 @@ class RuntimeMixin:
         self.pending_inference = None
         return True
 
+    def _save_density_chart_to_results(self, notify=False):
+        """Save current density chart snapshot into the results directory."""
+        if not hasattr(self, "fig"):
+            return None
+
+        if not getattr(self, "recognition_data", None):
+            return None
+
+        detector = getattr(self, "bird_detector", None)
+        results_dir = getattr(detector, "results_dir", "results")
+
+        try:
+            os.makedirs(results_dir, exist_ok=True)
+            file_name = f"density_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            output_path = os.path.join(results_dir, file_name)
+            self.fig.savefig(output_path, dpi=300, bbox_inches="tight")
+            if notify:
+                self.statusBar.showMessage(f"密度图已保存: {file_name}")
+            return output_path
+        except Exception as error:
+            if notify:
+                self.statusBar.showMessage(f"保存密度图失败: {error}")
+            return None
+
     def toggle_detection(self):
         """Toggle detection state between running and paused."""
+        is_file_source = getattr(self, "video_source_kind", "camera") == "file"
+
         if not self.is_detecting:
             if getattr(self, "bird_detector", None) is None:
                 self.statusBar.showMessage("模型未加载，无法开始检测")
                 return
-            self._set_detection_state(True, "检测中...")
+
+            if is_file_source:
+                self.is_video_paused = False
+                self._set_detection_state(True, "检测中，视频继续播放...")
+            else:
+                self._set_detection_state(True, "检测中...")
             return
 
-        self._set_detection_state(False, "检测已停止")
+        stop_message = "检测已停止"
+        if is_file_source:
+            self.is_video_paused = True
+            stop_message = "检测已停止，视频已暂停"
+
+        self._set_detection_state(False, stop_message)
         self._clear_pending_inference()
 
         detector = getattr(self, "bird_detector", None)
@@ -86,6 +122,7 @@ class RuntimeMixin:
                 detector.current_detection_info = []
             detector.total_objects = 0
         self.count_label.setText("识别到的鸟类数量: 0")
+        self._save_density_chart_to_results(notify=True)
 
     def _set_source_combo_value(self, source_text):
         """Update source selector without retriggering selection logic."""
@@ -107,6 +144,8 @@ class RuntimeMixin:
         if self.cap and self.cap.isOpened():
             self.cap.release()
         self.cap = None
+        self.video_source_kind = "camera"
+        self.is_video_paused = False
 
         self._set_detection_state(False, "已切换到摄像头输入")
         self._clear_pending_inference()
@@ -132,10 +171,21 @@ class RuntimeMixin:
             return False
 
         self.selected_camera = None
+        self.video_source_kind = "file"
+        self.is_video_paused = False
 
-        # Pause detection after loading a new video.
-        self._set_detection_state(False, f"已打开视频: {os.path.basename(file_path)}")
         self._clear_pending_inference()
+
+        detector = getattr(self, "bird_detector", None)
+        if detector is None:
+            self._set_detection_state(
+                False,
+                f"已打开视频: {os.path.basename(file_path)}（模型未加载，未自动开始检测）",
+            )
+        else:
+            self._set_detection_state(
+                True, f"已打开视频并开始检测: {os.path.basename(file_path)}"
+            )
 
         if sync_source_combo:
             self._set_source_combo_value("视频文件")
@@ -153,7 +203,7 @@ class RuntimeMixin:
         QMessageBox.about(
             self,
             "关于",
-            "YOLO智能识别分析系统\n版本: 1.0.0\n© 2025 版权所有:睿翼智控",
+            "YOLO智能识别分析系统\n版本: 1.0.0",
         )
 
     def detect_cameras(self):
@@ -232,8 +282,18 @@ class RuntimeMixin:
         self.last_frame_time = current_time
 
         if not self.is_detecting:
+            if (
+                getattr(self, "video_source_kind", "camera") == "file"
+                and self.cap is not None
+                and getattr(self, "is_video_paused", False)
+            ):
+                self.fps_label.setText("FPS: 0.0")
+                return
+
             # Keep previewing frames when detection is paused.
             if self.cap is None:
+                if getattr(self, "video_source_kind", "camera") == "file":
+                    return
                 if self.selected_camera is None:
                     # Ask the user to choose a camera if none is selected.
                     if not self.show_camera_selection_dialog():
@@ -287,6 +347,10 @@ class RuntimeMixin:
 
             ret, frame = self.cap.read()
             if not ret:
+                if getattr(self, "video_source_kind", "camera") == "file":
+                    self.is_video_paused = True
+                    self.statusBar.showMessage("视频播放完毕，视频已暂停")
+                    return
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 ret, frame = self.cap.read()
                 if not ret:
@@ -301,6 +365,10 @@ class RuntimeMixin:
             return
 
         if self.cap is None:
+            if getattr(self, "video_source_kind", "camera") == "file":
+                self._set_detection_state(False, "未加载视频文件，无法执行检测")
+                self._clear_pending_inference()
+                return
             if self.selected_camera is None:
                 if not self.show_camera_selection_dialog():
                     self._set_detection_state(False, "检测已停止")
@@ -321,6 +389,12 @@ class RuntimeMixin:
 
         ret, frame = self.cap.read()
         if not ret:
+            if getattr(self, "video_source_kind", "camera") == "file":
+                self.is_video_paused = True
+                self._set_detection_state(False, "视频播放完毕，已暂停检测和视频")
+                self._clear_pending_inference()
+                self._save_density_chart_to_results()
+                return
             self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             ret, frame = self.cap.read()
             if not ret:
@@ -570,35 +644,25 @@ class RuntimeMixin:
 
     def closeEvent(self, event):
         """Handle graceful shutdown and optional trend plotting."""
-        reply = QMessageBox.question(
-            self,
-            "确认退出",
-            "确定要退出程序吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        self._clear_pending_inference(wait=True)
+        self._save_density_chart_to_results()
 
-        if reply == QMessageBox.Yes:
-            self._clear_pending_inference(wait=True)
+        # Release camera resources.
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        self.timer.stop()
+        if hasattr(self, "inference_executor") and self.inference_executor:
+            self.inference_executor.shutdown(wait=False, cancel_futures=True)
+        cv2.destroyAllWindows()
 
-            # Release camera resources.
-            if self.cap and self.cap.isOpened():
-                self.cap.release()
-            self.timer.stop()
-            if hasattr(self, "inference_executor") and self.inference_executor:
-                self.inference_executor.shutdown(wait=False, cancel_futures=True)
-            cv2.destroyAllWindows()
-
-            # Generate trend chart from saved CSV data when possible.
-            try:
-                # Use the detector helper to generate the trend chart.
-                if hasattr(self, "bird_detector") and self.bird_detector:
-                    self.bird_detector.plot_trends()
-            except Exception as error:
-                print(f"生成趋势图时出错: {error}")
-            event.accept()
-        else:
-            event.ignore()
+        # Generate trend chart from saved CSV data when possible.
+        try:
+            # Use the detector helper to generate the trend chart.
+            if hasattr(self, "bird_detector") and self.bird_detector:
+                self.bird_detector.plot_trends()
+        except Exception as error:
+            print(f"生成趋势图时出错: {error}")
+        event.accept()
 
     def load_model_and_classes(self, model_path):
         """Load a model and synchronize class selections."""
@@ -612,20 +676,13 @@ class RuntimeMixin:
             new_detector = ObjectDetector(resolved_model_path)
             new_all_classes = list(new_detector.model.names.values())
 
-            # Keep selected and density classes valid for the new model.
-            if not hasattr(self, "selected_classes") or not self.selected_classes:
-                next_selected_classes = set(new_all_classes)
-            else:
-                next_selected_classes = {
-                    cls for cls in self.selected_classes if cls in new_all_classes
-                } or set(new_all_classes)
-
-            if not hasattr(self, "density_classes") or not self.density_classes:
-                next_density_classes = set(next_selected_classes)
-            else:
-                next_density_classes = {
-                    cls for cls in self.density_classes if cls in new_all_classes
-                } or set(next_selected_classes)
+            # Keep only bird for detection and density chart.
+            bird_class = next(
+                (cls for cls in new_all_classes if str(cls).lower() == "bird"),
+                None,
+            )
+            next_selected_classes = {bird_class} if bird_class else set()
+            next_density_classes = set(next_selected_classes)
 
             new_detector.selected_classes = next_selected_classes
             new_detector.density_classes = next_density_classes
@@ -640,9 +697,13 @@ class RuntimeMixin:
                 del old_detector
                 gc.collect()
 
-            self.statusBar.showMessage(
-                f"成功加载模型: {os.path.basename(self.model_path)}"
-            )
+            model_name = os.path.basename(self.model_path)
+            if next_selected_classes:
+                self.statusBar.showMessage(f"成功加载模型: {model_name}（仅检测 bird）")
+            else:
+                self.statusBar.showMessage(
+                    f"成功加载模型: {model_name}（模型不含 bird 类）"
+                )
 
         except Exception as error:
             self.statusBar.showMessage(f"加载模型失败: {error}")

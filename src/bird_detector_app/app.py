@@ -42,9 +42,11 @@ class YoloVisualizationApp(
         self.last_fps_update = QDateTime.currentDateTime()
         self.available_cameras = self.detect_cameras()
         self.selected_camera = None
+        self.video_source_kind = "camera"
+        self.is_video_paused = False
         self.last_frame_time = QDateTime.currentDateTime()
         self.last_chart_update = QDateTime.currentDateTime()
-        self.chart_update_interval_ms = 250
+        self.chart_update_interval_ms = 100
         self.last_csv_save_second = None
         self.inference_executor = ThreadPoolExecutor(max_workers=1)
         self.pending_inference = None

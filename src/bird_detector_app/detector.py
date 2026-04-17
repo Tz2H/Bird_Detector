@@ -34,6 +34,12 @@ class ObjectDetector:
         ]
         plt.rcParams["axes.unicode_minus"] = False
         self.model = YOLO(resolve_model_path(model_path))
+        # High-precision profile: slower but more conservative and stable.
+        self.inference_conf = 0.65
+        self.inference_iou = 0.40
+        self.inference_imgsz = 1536
+        self.inference_augment = True
+        self.inference_half = False
         self.colors = {
             "box": (0, 255, 0),
             "text_bg": (44, 44, 44),
@@ -314,10 +320,40 @@ class ObjectDetector:
         self.current_detection_info = detection_info
         self.total_objects = sum(class_counter.values())
 
+    def _resolve_selected_class_ids(self):
+        """Map selected class names to model class IDs for inference filtering."""
+        if not self.selected_classes:
+            return None
+
+        return [
+            class_id
+            for class_id, class_name in self.model.names.items()
+            if class_name in self.selected_classes
+        ]
+
     def process_frame(self, frame):
         """Run model inference on a frame and draw detections."""
-        results = self.model.predict(frame)
+        selected_class_ids = self._resolve_selected_class_ids()
+
+        if self.selected_classes and not selected_class_ids:
+            self.current_detection_info = []
+            self.total_objects = 0
+            return frame
+
+        results = self.model.predict(
+            frame,
+            conf=self.inference_conf,
+            iou=self.inference_iou,
+            imgsz=self.inference_imgsz,
+            augment=self.inference_augment,
+            half=self.inference_half,
+            classes=selected_class_ids,
+            verbose=False,
+        )
         if len(results) > 0:
             detections = results[0].boxes.data.cpu().numpy()
             self.draw_detection(frame, detections)
+        else:
+            self.current_detection_info = []
+            self.total_objects = 0
         return frame
