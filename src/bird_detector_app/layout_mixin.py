@@ -1,5 +1,9 @@
 """Layout-building methods for the main window."""
 
+import matplotlib
+
+matplotlib.use("Qt5Agg", force=True)
+
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from PyQt5.QtCore import Qt
@@ -66,7 +70,7 @@ class LayoutMixin:
         self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
         video_control_layout.addWidget(QLabel("分辨率:"))
         video_control_layout.addWidget(self.resolution_combo)
-        
+
         video_control_layout.addStretch()
 
         left_layout.addWidget(video_control_frame)
@@ -93,7 +97,7 @@ class LayoutMixin:
         self.fps_label = QLabel("FPS: 0")
         self.fps_label.setObjectName("statLabel")
         info_layout.addWidget(self.fps_label)
-        
+
         info_layout.addStretch()
 
         left_layout.addWidget(info_frame)
@@ -115,24 +119,26 @@ class LayoutMixin:
         self.density_chart_placeholder.setAlignment(Qt.AlignCenter)
         self.density_chart_placeholder.setObjectName("densityPanel")
         right_layout.addWidget(self.density_chart_placeholder)
-        
+
         # Real-time event log
         log_frame = MacStyleFrame()
         log_layout = QVBoxLayout(log_frame)
         log_layout.setContentsMargins(12, 12, 12, 12)
         log_layout.setSpacing(8)
-        
+
         log_title = QLabel("实时状态跟踪")
         log_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #F8FAFC;")
         log_layout.addWidget(log_title)
-        
+
         self.log_text_edit = QTextEdit()
         self.log_text_edit.setReadOnly(True)
         self.log_text_edit.setPlaceholderText("系统空闲，等待视频流输入...")
         self.log_text_edit.setObjectName("logTextEdit")
         log_layout.addWidget(self.log_text_edit)
-        
-        right_layout.addWidget(log_frame, 1) # This frame will stretch and safely fill the remaining vertical gap
+
+        right_layout.addWidget(
+            log_frame, 1
+        )  # This frame will stretch and safely fill the remaining vertical gap
 
         # Control button area
         control_frame = MacStyleFrame()
@@ -143,9 +149,12 @@ class LayoutMixin:
         # Start/stop detection button
         self.start_stop_button = MacStyleButton("开始检测")
         self.start_stop_button.setMinimumHeight(44)
-        self.start_stop_button.setStyleSheet(self.start_stop_button.styleSheet() + """
+        self.start_stop_button.setStyleSheet(
+            self.start_stop_button.styleSheet()
+            + """
             QPushButton { font-size: 15px; border-radius: 8px; }
-        """)
+        """
+        )
         self.start_stop_button.setIcon(
             self.style().standardIcon(self.style().SP_MediaPlay)
         )
@@ -170,12 +179,18 @@ class LayoutMixin:
         # Apply initial dark styling
         self.fig.patch.set_facecolor("#171A21")
         self.ax.set_facecolor("#171A21")
-        self.ax.spines['top'].set_visible(False)
-        self.ax.spines['right'].set_visible(False)
-        self.ax.spines['left'].set_color("#292D3E")
-        self.ax.spines['bottom'].set_color("#292D3E")
+        self.ax.spines["top"].set_visible(False)
+        self.ax.spines["right"].set_visible(False)
+        self.ax.spines["left"].set_color("#292D3E")
+        self.ax.spines["bottom"].set_color("#292D3E")
         self.ax.tick_params(colors="#64748B")
-        self.ax.set_title("数量密度分布（暂无数据）", fontsize=15, fontweight="600", color="#F8FAFC", pad=12)
+        self.ax.set_title(
+            "数量密度分布（暂无数据）",
+            fontsize=15,
+            fontweight="600",
+            color="#F8FAFC",
+            pad=12,
+        )
 
         # Remove any previous placeholder layout.
         old_layout = self.density_chart_placeholder.layout()
