@@ -11,6 +11,7 @@ dist/
 wheels/
 *.egg-info
 results/
+dataset_enhancement/
 
 # Virtual environments
 .venv
