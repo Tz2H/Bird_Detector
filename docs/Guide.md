@@ -54,7 +54,6 @@ xattr -dr com.apple.quarantine dist/BirdDetector.app
 ### 2.3 左侧区域
 
 - 视频源下拉：摄像头 / 视频文件
-- 分辨率下拉：当前为预留项，暂未接入实时切换逻辑
 - 视频画面：显示实时带框结果
 - 状态栏：显示识别数量与 FPS
 

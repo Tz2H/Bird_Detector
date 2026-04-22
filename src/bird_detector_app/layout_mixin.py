@@ -60,12 +60,6 @@ class LayoutMixin:
         video_control_layout.addWidget(QLabel("视频源:"))
         video_control_layout.addWidget(self.source_combo)
 
-        # Resolution selector
-        self.resolution_combo = QComboBox()
-        self.resolution_combo.addItems(["640x480", "1280x720", "1920x1080"])
-        video_control_layout.addWidget(QLabel("分辨率:"))
-        video_control_layout.addWidget(self.resolution_combo)
-
         video_control_layout.addStretch()
 
         left_layout.addWidget(video_control_frame)
