@@ -1,0 +1,1 @@
+"""Bird detector application package."""

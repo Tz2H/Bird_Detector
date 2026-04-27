@@ -1,2 +1,3 @@
-model=resources/models/yolo11m.pt
-classes=bird,person,animal
+model=src/resources/models/yolo11m.pt
+classes=bird
+density=bird
